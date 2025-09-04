@@ -1,0 +1,410 @@
+########################################################
+########## Estimation of protection duration ###########
+########################################################
+
+############ Note that this code requires the piece-wise survival model: 6M-12M, fitted by log-IFNg ##########
+############ recommend running this code together with (4) Survival analysis ################
+
+###### read the simulated IFNg data, this data has maximum t = 1000 days #######
+```{r}
+IFNg_pop <- read.csv("IFNg_pop.csv")
+IFNg_pop <- IFNg_pop %>% filter(immu == 1 | immu == 2 | immu == 4) %>% dplyr::select(-c(Mean50,Max95,Max50,Min50,Min95))
+IFNg_pop
+```
+
+```{r}
+IFNg_pop_long <- IFNg_pop %>%
+  # Pivot the specified columns into long format
+  pivot_longer(
+    cols = c(best_fit,Min30, Max30), # Min95, Max95, Min50, Max50, ),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  # Create the 'responder' column based on the 'variable' column
+  mutate(
+    responder = case_when(
+      variable == "best_fit" ~ "Mean Responder",
+      variable == "Min30" ~ "30% Worst Responder",
+      variable == "Max30" ~ "30% Best Responder",
+      TRUE ~ NA_character_  # Fallback for unexpected cases
+    )
+  )
+
+IFNg_pop_long
+IFNg_pop_long$responder <- factor(IFNg_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+```
+
+##################### Approach 1: intersection with predefined threshold ###############
+############ Compute the intersections ##########
+```{r}
+subset_data <- IFNg_pop_long %>%
+  filter(immu == 2, responder == "30% Worst Responder") %>%
+  arrange(time)
+first_time_point <- subset_data %>%
+  filter(time > 400, value < 19.55) %>%
+  slice(1) %>%
+  pull(time)
+first_time_point
+subset_data <- IFNg_pop_long %>%
+  filter(immu == 2, responder == "30% Best Responder") %>%
+  arrange(time)
+first_time_point <- subset_data %>%
+  filter(time > 400, value < 19.55) %>%
+  slice(1) %>%
+  pull(time)
+first_time_point
+subset_data <- IFNg_pop_long %>%
+  filter(immu == 2, responder == "Mean Responder") %>%
+  arrange(time)
+first_time_point <- subset_data %>%
+  filter(time > 500, value < 19.55) %>%
+  slice(1) %>%
+  pull(time)
+first_time_point
+```
+
+############ Figure 6-A ############
+```{r}
+diff_inf_ifng <- ggplot(subset(IFNg_pop_long,immu==2), aes(x=time, y = value, group = responder, color =responder)) + geom_line(size = 1) + 
+
+  geom_hline(yintercept = 19.55, linetype = "dashed", color = "black", size = 0.5) +
+ # geom_hline(yintercept = 16.45, linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 469, xend = 469, y = -100, yend = 19.55, 
+               linetype = "dashed", color = "black", size = 0.5) +
+   geom_segment(x = 722, xend = 722, y = -100, yend = 19.55, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 564, xend = 564, y = -100, yend = 19.55, 
+               linetype = "dashed", color = "black", size = 0.5) +
+
+   geom_text(aes(x = 469, y = -0.8, label = "469"), hjust = 1,vjust= 1.5, size = 4, color = "black") +
+  geom_text(aes(x = 722, y = -0.8, label = "722"), hjust = 1, vjust= 1.5, size = 4, color = "black") +
+  geom_text(aes(x = 564, y = -0.8, label = "564"), hjust = 1,vjust= 1.5,  size = 4, color = "black") +
+  geom_text(aes(x = max(IFNg_pop_long$time) + 10, y = 19.55, label = "19.55"), vjust = -1, size = 4, color = "black") +
+ # geom_text(aes(x = max(IFNg_pop_long$time) + 10, y = 16.45, label = "16.45"), vjust = 1.5, size = 4, color = "black") +
+  labs(x = "Time after primary vaccination (days)", y = "IFNg (pg/ml)",
+        color = "Responders") +
+    theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+   
+  ) +  
+  #scale_y_continuous(limits = c(0, 100),breaks = seq(0, 100, by = 20))+
+  scale_x_continuous( breaks = seq(0, 1000, by = 100))
+
+  
+diff_inf_ifng  
+```
+
+##################################################################################
+############### Approach 2: survival analysis prediction #########################
+##################################################################################
+
+######### Slice the data from 6M to 1000 D, select only the children with hybrid immunity and no booster received ####################
+```{r}
+IFNg_pop_long_218 <- IFNg_pop_long %>% filter(immu == 2) %>% group_by(responder) %>% slice(218:max(time))
+IFNg_pop_long_218
+```
+########### Extract the hazard function and coefficients, we assume the baseline hazard remains constant after one year#############
+```{r}
+baseline_hazard <- basehaz(fit.tdc, centered = FALSE)
+
+# Compute the hazard rate at the last time point
+# Calculate differences in cumulative hazard and time
+hazard_rates <- c(diff(baseline_hazard$hazard) / diff(baseline_hazard$time), NA)
+last_hazard_rate <- hazard_rates[nrow(baseline_hazard) - 1]  # Hazard rate at last time point
+last_time <- max(baseline_hazard$time)  # Last observed time
+last_cum_hazard <- max(baseline_hazard$hazard)
+
+future_times <- seq(last_time, 1000, by = 10)  # Extend to 1000 units beyond last time
+extended_times <- c(baseline_hazard$time, future_times[future_times > last_time])
+extended_cum_hazard <- c(
+  baseline_hazard$hazard,
+  last_cum_hazard + last_hazard_rate * (future_times[future_times > last_time] - last_time)
+)
+extended_hazard_df <- data.frame(
+  time = extended_times,
+  hazard = extended_cum_hazard
+)
+extended_hazard_df 
+```
+
+```{r}
+# Matching the hazard with time 
+  H0_t <- approxfun(extended_times, extended_cum_hazard, rule = 2)
+  H0_at_times <- H0_t(IFNg_pop_long_218$time)
+```
+########## Calculate survival probability ##############
+```{r}
+#Infected children WITHOUT BOOSTER
+beta <- coef(fit.tdc)["log_IFNg"]  # Coefficient for log_IFNg
+  cum_hazard <- H0_at_times * exp(beta * log10(IFNg_pop_long_218$value))
+  survival_prob <- exp(-cum_hazard)
+  #risk_prob <- 1 - survival_prob
+  
+  result <- data.frame(
+    responder = IFNg_pop_long_218$responder,
+    time = IFNg_pop_long_218$time,
+    log_IFNg = log10(IFNg_pop_long_218$value),
+    cum_hazard = cum_hazard,
+    survival_prob = survival_prob
+    #risk_prob = risk_prob
+  )
+  
+  result$responder <- factor(result$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+  result
+```
+###############################
+######## PLOT FIGURE 6B #######
+###############################
+```{r}
+#date_15 <- 54 #date when peak ab level 15 drop under 80% protection
+date_20 <- 487
+date_30 <- 582
+date_45 <- 740
+
+p <- ggplot(result, aes(x = time , y = survival_prob*100, color = factor(responder), group = factor(responder))) +
+  geom_smooth(method = "loess", se = FALSE, size = 1) +  # Smooth curve without ribbon
+  #scale_color_manual(values = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"), 
+  #                   name = "IFNg Level at Day 303 (pg/ml)") +
+  geom_hline(yintercept = 75, linetype = "dashed", color = "black", size = 0.5) +
+ # geom_segment(x = date_15, xend = date_15, y = -Inf, yend = 80, 
+ #              linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = date_20, xend = date_20, y = -Inf, yend = 75, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = date_30, xend = date_30, y = -Inf, yend = 75, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = date_45, xend = date_45, y = -Inf, yend = 75, 
+               linetype = "dashed", color = "black", size = 0.5) +
+   geom_text(aes(x = 487, y = 0, label = "487"), hjust = 1,vjust= 1.5, size = 4, color = "black") +
+  geom_text(aes(x = 582, y = 0, label = "582"), hjust = 1, vjust= 1.5, size = 4, color = "black") +
+  geom_text(aes(x = 740, y = 0, label = "740"), hjust = 1,vjust= 1.5,  size = 4, color = "black") +
+  
+  geom_text(aes(x = 1000 + 10, y =75, label = "75%"), vjust = -1, size = 4, color = "black") +
+  
+  
+  labs(x = "Time after primary vaccination (days)", y = "Cumulative survival probability(%)", color = "Responders") +
+   theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+   
+  )+
+  scale_y_continuous(limits = c(0, 100),breaks = seq(0, 100, by = 20))+
+  scale_x_continuous( breaks = seq(0, 1000, by = 100))
+
+p
+```
+
+##################################################################################################
+################## Sensitivity Analysis: Different timing of infection ###########################
+##################################################################################################
+
+############## ODE function allows us to input different timing of infection, and simulate the trajectories ##############
+```{r}
+ode_ifng_surv <- function(pars, tstop_ind, t_inf) {
+  # Extract parameters
+  A0 <- pars[[1]]         
+  alpha_pop <- pars[[2]]  
+  gamma_pop <- pars[[3]]  
+  beta_pop <- pars[[4]]  
+  alpha1_pop <- pars[[5]]  
+  gamma1_pop <- pars[[6]]  
+  beta1_pop <- pars[[7]]   
+  # Define the ODE function
+  derivs <- function(times, y, pars, inf_time) {
+    with(as.list(c(y, pars)), {
+      dA <- ifelse(times < inf_time,
+                   alpha_pop * exp(-gamma_pop * times) - beta_pop * A,
+                   alpha_1pop * exp(-gamma1_pop * (times - inf_time)) - beta1_pop * A)
+      return(list(c(dA)))
+    })
+  }
+  
+
+  results_list <- list()
+  
+  # Loop over each t_inf
+  for (i in seq_along(t_inf)) {
+    inf_time <- t_inf[i]
+
+    times <- seq(Tmin, tstop_ind, by = step_size)
+    
+    y <- c(A = A0)
+
+    out <- ode(y = y, times = times, func = derivs, parms = list(alpha_pop = alpha_pop, gamma_pop = gamma_pop, beta_pop = beta_pop), inf_time = inf_time)
+    
+    out_df <- as.data.frame(out)
+    out_df$t_inf <- inf_time
+    
+    results_list[[i]] <- out_df
+  }
+  
+  result <- bind_rows(results_list)
+  
+  return(result)
+}
+```
+
+######### The parameters are based on the Monolix results of IFN-g (POPULATION PARAMETERS) #######
+```{r}
+infection <- c(38, 67, 150, 209, 284)
+A0_values <- 1.281943e+00	
+alpha_pop <-1.511048e+02	
+gamma_pop <-8.736368e-01	
+beta_pop <-9.150411e-03	
+alpha_1pop <-7.962480e+00	
+gamma_1pop <- 1.662723e-01	
+beta_1pop <-3.786414e-03	
+parameters <- c(A0_values,alpha_pop,gamma_pop,beta_pop,alpha_1pop,gamma_1pop,beta_1pop)
+infection
+Tmin = 0
+step_size = 1
+```
+```{r}
+inf_ifng <- ode_ifng_surv(parameters, 1000, infection)
+```
+
+#################################
+######## S-Figure 11 A ##########
+#################################
+
+```{r}
+diff_inf_ifng <- ggplot(inf_ifng, aes(x=time, y = A, group = as.factor( t_inf), color = as.factor(t_inf))) + geom_line(linewidth = 1, alpha = 0.8) + 
+ geom_segment(x = 564, xend = 564, y = -100, yend = 19.55, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 615, xend = 615, y = -100, yend = 16.45, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 241, xend = 241, y = -100, yend = 19.55, 
+               linetype = "dashed", color = "black", size = 0.5) +
+ # geom_segment(x = 261, xend = 261, y = -100, yend = 16.45, 
+ #              linetype = "dashed", color = "black", size = 0.5) +
+  geom_hline(yintercept = 19.55, linetype = "dashed", color = "black", size = 0.5) +
+ # geom_hline(yintercept = 16.45, linetype = "dashed", color = "black", size = 0.5) +
+  
+  geom_text(aes(x = 564, y = 0, label = "586"), hjust = 1, size = 4, color = "black") +
+  geom_text(aes(x = 615, y = 0, label = "631"), hjust = 1, size = 4, color = "black") +
+  geom_text(aes(x = 241, y = 0, label = "241"), hjust = 1, size = 4, color = "black") +
+ # geom_text(aes(x = 261, y = 0, label = "261"), hjust = 1, size = 2.5, color = "black") +
+  # Add text labels for horizontal lines beside y-axis
+  geom_text(aes(x = max(inf_ifng$time) + 10, y = 19.55, label = "19.55"), vjust = 1, size = 4, color = "black") +
+ # geom_text(aes(x = max(inf_ifng$time) + 10, y = 16.45, label = "16.45"), vjust = 1, size = 2.5, color = "black") +
+  
+  labs(x = "Time after primary vaccination (days)", y = "IFNg (pg/ml)",
+        color = "Infection time (days after primary vaccination)") +
+    theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+  )
+
+  
+diff_inf_ifng  
+```
+################ Using the trajectory to plot fit into survival model #############
+```{r}
+IFNg_pop_long_218 <- inf_ifng %>%  group_by(t_inf) %>% slice(218:max(time))
+IFNg_pop_long_218
+```
+```{r}
+  H0_t <- approxfun(extended_times, extended_cum_hazard, rule = 2)
+  H0_at_times <- H0_t(IFNg_pop_long_218$time)
+```
+
+```{r}
+# WITHOUT BOOSTER
+
+beta <- coef(fit.tdc)["log_IFNg"]  # Coefficient for log_IFNg
+  cum_hazard <- H0_at_times * exp(beta * log10(IFNg_pop_long_218$A))
+  survival_prob <- exp(-cum_hazard)
+  #risk_prob <- 1 - survival_prob
+  
+  result <- data.frame(
+    infection_time = IFNg_pop_long_218$t_inf,
+    time = IFNg_pop_long_218$time,
+    log_IFNg = log10(IFNg_pop_long_218$A),
+    cum_hazard = cum_hazard,
+    survival_prob = survival_prob
+    #risk_prob = risk_prob
+  )
+   result$infection_time <- as.factor( result$infection_time)
+  
+  result$infection_time <- factor(result$infection_time, levels = c("38", "67", "150","209","284"))
+  result
+```
+```{r}
+result_clean <- result %>%
+  filter(!(infection_time == "284" &  time <= 300))
+
+result_clean
+```
+
+#################################
+######## S-Figure 11 B ##########
+#################################
+```{r}
+date_30 <- 580
+date_45 <- 631
+
+p <- ggplot(result_clean, aes(x = time , y = survival_prob*100, color = factor(infection_time), group = factor(infection_time))) +
+  geom_smooth(method = "loess", se = FALSE, size = 1, alpha = 0.8) +  # Smooth curve without ribbon
+  geom_hline(yintercept = 75, linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = date_30, xend = date_30, y = -Inf, yend = 75, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = date_45, xend = date_45, y = -Inf, yend = 75, 
+               linetype = "dashed", color = "black", size = 0.5) +
+   geom_text(aes(x = 580, y = 0, label = "580"), hjust = 1,vjust= 1.5, size = 4, color = "black") +
+  geom_text(aes(x = 631, y = 0, label = "631"), hjust = 1, vjust= 1.5, size = 4, color = "black") +
+ 
+  
+  geom_text(aes(x = 1000 + 10, y =75, label = "75%"), vjust = -1, size = 4, color = "black") +
+  
+  
+  labs(x = "Time after primary vaccination (days)", y = "Cumulative survival probability(%)", color = "Infection time (days after primary vaccination)") +
+   theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+   
+  )+
+  scale_y_continuous(limits = c(0, 100),breaks = seq(0, 100, by = 20))+
+  scale_x_continuous( breaks = seq(0, 1000, by = 100))
+
+p
+```

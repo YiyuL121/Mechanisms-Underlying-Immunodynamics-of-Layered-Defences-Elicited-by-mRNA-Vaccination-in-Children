@@ -1,0 +1,474 @@
+##########################################
+########### Survival Analysis ############
+##########################################
+
+
+################################################################################################
+############ This code contains two parts: piece-wise analysis and global analysis #############
+################################################################################################
+
+```{r}
+library(dplyr)
+library(survival)
+library(tidyr)
+library(ggplot2)
+library(survex)
+library(randomForestSRC)
+library(lubridate)
+library(GGally)
+library(patchwork)
+library(scales)  # for gradient color scaling
+```
+######################## load simulated data for survival analysis
+```{r}
+simulated_IL2 <- read.csv("Simulated_IL2.csv")
+simulated_IFNg <- read.csv("Simulated_IFNg.csv")
+simulated_igG <- read.csv("simulated_igG.csv")
+simulated_MBC <- read.csv("simulated_MBC.csv")
+simulated_IC50 <- read.csv("simulated_IC50.csv")
+```
+############# Merge simulated data ###############
+```{r}
+
+merged_data <- simulated_igG %>%
+  left_join(simulated_IL2, by = c("Code","Days"))%>%
+  left_join(simulated_IFNg, by = c("Code","Days"))%>%
+  left_join(simulated_MBC, by = c("Code","Days")) %>%
+  left_join(simulated_IC50, by = c("Code","Days")) %>%
+  rename(ID = Code) %>%
+  rename(nAb = IC50) %>%
+  mutate(
+    log_IgG = log10(Anti_S_IgG),
+    log_MBC = log10(Spike_MBC),
+    log_nAb = log10(nAb),
+    log_IFNg = log10(IFNg),
+    log_IL2 = log10(IL2)
+  ) 
+merged_data
+```
+############### Read and Merge raw data #############
+```{r}
+raw_IL2 <- read.csv("")
+raw_IFNg <- read.csv("")
+raw_igG <- read.csv("")
+raw_MBC <- read.csv("")
+raw_IC50 <- read.csv("")
+
+raw_merged_data <- raw_igG[,c(1:3)] %>%
+  left_join(raw_IL2[,c(1:3)], by = c("ID","Day"))%>%
+  left_join(raw_IFNg[,c(1:3)], by = c("ID","Day"))%>%
+  left_join(raw_MBC[,c(1:3)], by = c("ID","Day")) %>%
+  left_join(raw_IC50[,c(1:3)], by = c("ID","Day")) %>%
+  rename(nAb = IC50) %>%
+  mutate(
+    log_IgG = log10(Anti.S.IgG),
+    log_MBC = log10(SPIKE_MBC),
+    log_nAb = log10(nAb),
+    log_IFNg = log10(IFNg),
+    log_IL2 = log10(IL2))
+    #raw_merged_data <- na.omit(raw_merged_data)
+    raw_merged_data
+```
+
+
+
+################################################################################
+####################### Plot correlations, S Figure 7 ##########################
+################################################################################
+
+```{r}
+cor_data <- merged_data %>%
+  group_by(ID) %>% slice(218:392) %>%  ungroup() %>% dplyr::select( log_IgG, log_nAb, log_MBC, log_IFNg, log_IL2) # This example of slice:218-392 is representing 6M-12M, change it to 30-123/124-217 to obtain results for 30D-3M and 3M-6M
+#cor_data <- raw_merged_data %>% dplyr::select( log_IgG, log_nAb, log_MBC, log_IFNg, log_IL2) # This line is for S-Fig-7-1
+
+# Custom correlation panel with color
+cor_fun_colored <- function(data, mapping, method = "spearman", ...){
+  x <- eval_data_col(data, mapping$x)
+  y <- eval_data_col(data, mapping$y)
+  
+  corr <- cor(x, y, method = method, use = "complete.obs")
+  p_val <- cor.test(x, y, method = method)$p.value
+  
+  stars <- symnum(p_val, 
+                  cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                  symbols = c("***", "**", "*", ""))
+  
+  # Use absolute correlation to define color intensity
+  col <- gradient_n_pal(c("#FFE5CC", "#FF6600", "#990000"))(abs(corr))  # light to strong red/orange
+  
+  ggally_text(
+    label = paste0("Corr:\n", sprintf("%.3f", corr), stars),
+    mapping = aes(),
+    color = col,
+    size = 5,
+    ...
+  )
+}
+cor_plot <- ggpairs(
+  cor_data,
+  lower = list(continuous = wrap("points", alpha = 0.5, size = 0.4)),
+  upper = list(continuous = cor_fun_colored),
+  diag = list(continuous = wrap("densityDiag", color = "blue"))
+) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
+    panel.spacing = unit(0, "lines"),
+    strip.background = element_rect(fill = "gray90", color = NA),
+    strip.text = element_text(size = 10, face = "bold", color = "black"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10)
+  )
+
+print(cor_plot)
+```
+
+#######################################################
+########## Immunity details of individual #############
+#######################################################
+```{r}
+immu_detail_individuals <- read.csv("immu_detail_individuals_reinf.csv")
+```
+```{r}
+# retrieve individual infection info 
+Infection_info <- immu_detail_individuals %>%
+  dplyr::select(ID,inf,t_inf, reinf, t_inf_2) #%>%
+Infection_info
+```
+```{r}
+# merge simulated data with inf_info
+merged_data_immu <- merged_data %>%
+  left_join(Infection_info, by = "ID"  )
+merged_data_immu
+```
+```{r}
+# merge raw data with immunity info and compute max day of visit for each
+full_data_withoutVIV_immu <- merge(raw_merged_data, immu_detail_individuals, by = c("ID")) %>% group_by (ID) %>% mutate(Visit = row_number() )
+ind_max_visit <- full_data_withoutVIV_immu %>% group_by(ID) %>% slice_tail() %>% dplyr::select(ID,Day,Visit)
+ind_max_visit
+```
+```{r}
+# Compute the mean day of each visit. Based on this, we knew 3M corresponds to 123D, 6M~217D. 12M~392D
+mean_day <- full_data_withoutVIV_immu %>% group_by(Visit) %>%
+  summarize(Avg_Day = median(Day, na.rm = TRUE),
+            Q25 = quantile(Day, 0.25, na.rm = TRUE),
+    Q75 = quantile(Day, 0.75, na.rm = TRUE))
+mean_day
+```
+
+##################################################################################################################################
+################################## Piecewise Analysis: 30D-3M, 3M-6M, 6M-12M #####################################################
+##################################################################################################################################
+
+# Process time scale 
+```{r}
+# For those uninfected, the time cuts off at the maximum visit date
+uninf_ind_max_followup <- full_data_withoutVIV_immu %>%
+  filter(inf == 0) %>%
+  group_by(ID) %>%
+  slice_tail(n=1) %>%
+  dplyr::select(ID, Day)
+uninf_ind_max_followup
+```
+```{r}
+# For infected, cutoff = time of infection
+# For uninfected, cutoff = time of last visit
+# For reinfected, cutoff = time of reinfection
+
+inf_ind_time <- full_data_withoutVIV_immu %>%
+  filter(inf == 1& reinf ==0) %>%
+  group_by(ID) %>%
+  mutate(time = t_inf) %>%
+  slice_head(n=1) %>%
+  dplyr::select(ID, time) %>%
+  rename(Day = time) #infected ones has t_max = t inf
+inf_ind_time
+
+boost_ind_time <- uninf_ind_max_followup %>%
+  filter(ID %in% subset(full_data_withoutVIV_immu,boost == 1&inf == 0)$ID)
+boost_ind_time
+
+uninf_ind_max_followup<- uninf_ind_max_followup %>%
+  filter(!ID %in% boost_ind_time$ID)
+uninf_ind_max_followup  
+
+reinf_ind_time <- full_data_withoutVIV_immu %>%
+  filter(reinf == 1) %>%
+  group_by(ID) %>%
+  mutate(time1 = t_inf,
+         time2 = t_inf_2) %>%
+  slice_head(n=1) %>%
+  dplyr::select(ID, time1,time2) %>%
+  rename(Day = time1) #infected ones has t_max = t inf
+reinf_ind_time
+```
+```{r}
+#Combine all scenarios 
+max_followup <- rbind(uninf_ind_max_followup,inf_ind_time,reinf_ind_time) %>%
+  rbind(boost_ind_time)%>%
+  rename(max_t = Day)
+max_followup
+```
+```{r}
+# Combine the infection information with maximum followup
+inf_info <- immu_detail_individuals[,c(1,2,6)] %>%
+  left_join(max_followup, by = "ID" ) 
+inf_info  
+
+######## For df inf_info, "max_t" is the first time infection date or max visit date, "time2" is the reinfection date 
+```
+
+####### Start performing  survival analysis 
+```{r}
+###############
+head = 30  ### define the starting date of piecewise analysis: 30, 124, 218
+tail = 123 ### define the ending date of piecewise analysis: 123, 217, 392
+
+inf_b4_n <- inf_info %>% 
+  filter(inf==1 & max_t <head)  ### find out who gets infection before the starting date: as those are defined as hybrid immunity
+
+merged_data_immu_30 <- merged_data_immu %>%
+  group_by(ID) %>%
+  slice(head:tail) %>%
+  ungroup() ### Slice the simulated data within a certain period
+
+###############
+
+# redefine the infection events based on the study period
+new_inf_sub1 <- inf_info %>% filter(reinf ==0)%>%
+  mutate(new_inf = ifelse(inf==1 &max_t>=head&max_t<=tail,1,0)) %>%
+  mutate(new_max_t = ifelse(new_inf==1,max_t,tail)) 
+new_inf_sub2 <- inf_info %>% filter(reinf ==1)%>%
+  mutate(new_inf = ifelse((max_t>=head&max_t<=tail)|(time2>=head&time2<=tail),1,0)) %>%
+  mutate(new_max_t = ifelse(new_inf==1,max_t,tail)) %>%
+  mutate(new_max_t = ifelse(time2>=head&time2<=tail, time2, new_max_t)) %>%
+  mutate(new_max_t = ifelse(head< max_t&tail>max_t, max_t, new_max_t)) 
+
+new_inf <- rbind(new_inf_sub2,new_inf_sub1)%>%
+  dplyr::select(ID,new_max_t,inf,new_inf)
+
+
+count<- new_inf %>%
+  #filter(! ID %in% inf_b4_n$ID) %>%
+  group_by(new_inf) %>%
+  summarise(count = n()) 
+count_original <- new_inf %>%
+  group_by(inf) %>%
+  summarise(count = n()) 
+
+####### Create the survival dataset for the time-varying covariate Cox-Ph model
+df<-tmerge(new_inf,new_inf,id=ID,
+endpt=event(new_max_t,new_inf))
+
+df_processed <- tmerge(df,merged_data_immu_30,id=ID, # First argument: df: primary dataset, Second argument: dataset contians the covariates
+ log_Anti_S_IgG=tdc(Days,log_IgG),
+ log_Spike_MBC = tdc(Days, log_MBC),
+ log_nAb = tdc(Days, log_nAb),
+  log_IFNg = tdc(Days, log_IFN),
+ log_IL2 = tdc(Days, log_IL2),
+ Anti_S_IgG=tdc(Days,Anti_S_IgG),
+ IL2 = tdc(Days, IL2),
+ Spike_MBC = tdc(Days, Spike_MBC),
+ IC50 = tdc(Days, IC50),
+ IFNg = tdc(Days, IFNg)) %>% na.omit() %>%
+  mutate(
+    scale_IgG = scale(log_Anti_S_IgG),
+    scale_MBC = scale(log_Spike_MBC),
+    scale_nAb = scale(log_nAb),
+    scale_IFNg = scale(log_IFNg),
+    scale_IL2 = scale(log_IL2)
+ )
+df_processed <- na.omit(df_processed)
+
+# df_processed <- df_processed %>% filter(!ID %in% inf_b4_n$ID ) ############# Run this line if you target children withou hybrid immunity ##############
+df_processed
+
+############ Start fitting
+fit.tdc <- coxph(Surv(tstart,tstop,endpt)~   # Choose the biomarker you want to fit
+   # log_Anti_S_IgG +
+   # log_nAb+
+   # log_Spike_MBC+
+   # log_IFNg+
+   # log_IL2+
+   #   scale_IgG+
+   #   scale_nAb +
+   #   scale_MBC +
+   #   scale_IFNg +
+   #   scale_IL2 +
+
+    cluster(ID)
+  ,df_processed,x = TRUE)
+
+summary(fit.tdc)
+```
+
+
+
+##################################################################################################################################
+################################## Global Analysis: Children without hybrid immunity #############################################
+##################################################################################################################################
+
+
+## for merged simulated data, filter children who got infection after day 30
+```{r}
+b4_hybrid <- subset(inf_info,max_t>30) %>% dplyr::select(ID,inf, max_t) 
+b4_hybrid 
+count<- b4_hybrid %>%
+  group_by(inf) %>%
+  summarise(count = n()) 
+count # n =69
+```
+###### Based on the starting and ending of each child, slice the data
+```{r}
+b4_hybrid_data <- list()
+for (i in seq_along(b4_hybrid$ID)) {
+  id <- b4_hybrid$ID[i]
+  cut_off <- b4_hybrid$max_t[i]
+  ind_data <- merged_data %>% filter(ID == id) %>% slice(30:cut_off)
+  b4_hybrid_data[[i]] <- ind_data
+}
+
+b4_hybrid_data <- bind_rows(b4_hybrid_data) 
+```
+####### Create the survival dataset for the time-varying covariate Cox-Ph model
+```{r}
+# process the event information
+df<-tmerge(b4_hybrid,b4_hybrid,id=ID,
+endpt=event(max_t,inf))
+
+df_processed <- tmerge(df,b4_hybrid_data,id=ID, # First argument: df: primary dataset, Second argument: dataset contians the covariates
+ log_Anti_S_IgG=tdc(Days,log_IgG),
+ log_Spike_MBC = tdc(Days, log_MBC),
+ log_nAb = tdc(Days, log_nAb),
+  log_IFNg = tdc(Days, log_IFNg),
+ log_IL2 = tdc(Days, log_IL2),
+ Anti_S_IgG=tdc(Days,Anti_S_IgG),
+ IL2 = tdc(Days, IL2),
+ Spike_MBC = tdc(Days, Spike_MBC),
+ nAb = tdc(Days, nAb),
+ IFNg = tdc(Days, IFNg)) %>% na.omit() %>%
+  mutate(
+    scaled_IgG = scale(log_Anti_S_IgG),
+    scaled_MBC = scale(log_Spike_MBC),
+    scaled_nAb = scale(log_nAb),
+    scaled_IFNg = scale(log_IFNg),
+    scaled_IL2 = scale(log_IL2)
+ ) 
+df_processed <- na.omit(df_processed)
+df_processed
+```
+########### Start fitting ############
+```{r}
+fit.tdc <- coxph(Surv(tstart,tstop,endpt)~
+ #   log_Anti_S_IgG + 
+ #   log_nAb+
+ #   log_Spike_MBC+
+ #   log_IFNg+
+ #   log_IL2+ 
+  #  scaled_IgG+
+    scaled_nAb +
+    scaled_MBC +
+    scaled_IFNg +
+  #  scale_IL2 +
+   cluster(ID),data = df_processed)
+summary(fit.tdc)
+```
+
+########## Test the proportionality ###########
+
+```{r}
+zph <- cox.zph(fit.tdc)
+zph
+par(mfrow = c(1, 3))   # 3 panels side by side
+plot(zph, lwd = 2, col = 1:3)   # cox.zph object with 3 covariates
+```
+
+########## Plot S figure 9 #############
+```{r}
+beta_full <- list()
+zph <- cox.zph(fit.tdc)
+for (i in 1:n_distinct(colnames(zph$y))) {
+  
+  
+  
+  zph_identity <- cox.zph(fit.tdc   , transform = "identity")
+  plot_time <- plot(zph_identity[i], plot = FALSE)
+  
+  plot_i <- plot(zph[i], plot = FALSE)
+  beta_df=plot_i$y
+   
+  df <- data.frame(
+    time = plot_time$x,
+    beta = beta_df[,1],
+    lower_ci=beta_df[,3],
+    upper_ci=beta_df[,2],
+    covariate = colnames(zph$y)[i]   # store covariate name
+  )
+  
+  beta_full[[i]] <- df
+}
+
+# Combine all into one data frame for ggplot
+beta_full_df <- do.call(rbind, beta_full)
+beta_full_df
+```
+```{r}
+plot_beta <- ggplot(beta_full_df, aes(x = time, group = covariate)) +
+
+  geom_hline(yintercept = 0, linetype = "dotted", color = "green3", linewidth = 1) +
+  geom_ribbon(aes(ymin=lower_ci, ymax = upper_ci, fill = covariate), alpha = 0.1) +
+  geom_line(aes(y = beta, color = covariate), size = 1) +
+  theme_minimal() +
+  labs(x = "Days after primary vaccination", y = " Time-varying coefficients β(t)") +
+  scale_color_manual(values = c(
+    "scaled_IFNg" = "#1f77b4",
+    "scaled_MBC" = "#2ca02c",
+    "scaled_nAb" = "#d62728",
+    "scaled_IgG" = "#d62728"
+  ))+
+  scale_fill_manual(values = c(
+  "scaled_IFNg" = "#1f77b4",
+  "scaled_MBC" = "#2ca02c",
+  "scaled_nAb" = "#d62728",
+  "scaled_IgG" = "#d62728"
+)) +
+  theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm")
+  )# +
+ # scale_x_continuous(breaks = seq(30, 300, by = 50))
+  
+plot_beta
+```
+
+########### Since nAb violates proportionality, we want to test whether the time-dependent association of nAb is significant or not ###########
+```{r}
+fit.tdc <- coxph(Surv(tstart,tstop,endpt)~
+
+   tt(log_nAb) +
+   tt(log_Spike_MBC) +
+   tt(log_IFNg) +
+   
+  #  scale_IgG+
+  #  scale_MBC +
+  #  scale_nAb +
+  #  scale_IFNg +
+  #  scale_IL2 +
+    
+  # cluster(ID),data = df_processed,tt = function(x, t, ...) x * (t >= 100 ))  # Define the tt function
+    cluster(ID),data = df_processed,tt = function(x, t, ...) x * (t >= 30 & t <= 120))
+summary(fit.tdc)
+```
+####### END #######

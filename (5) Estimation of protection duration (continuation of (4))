@@ -408,3 +408,189 @@ p <- ggplot(result_clean, aes(x = time , y = survival_prob*100, color = factor(i
 
 p
 ```
+
+########################################################################################################
+####################### Supplementary plotting for antibodies and MBC : S Fig 9 ########################
+########################################################################################################
+
+########## MBC ##########
+```{r}
+MBC_pop <- read.csv("MBC_pop.csv")
+
+MBC_pop_long <- MBC_pop %>%
+  # Pivot the specified columns into long format
+  pivot_longer(
+    cols = c(best_fit,Min30, Max30), # Min95, Max95, Min50, Max50, ),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  # Create the 'responder' column based on the 'variable' column
+  mutate(
+    responder = case_when(
+      variable == "best_fit" ~ "Mean Responder",
+      variable == "Min30" ~ "30% Worst Responder",
+      variable == "Max30" ~ "30% Best Responder",
+      TRUE ~ NA_character_  # Fallback for unexpected cases
+    )
+  )
+
+MBC_pop_long
+MBC_pop_long$responder <- factor(MBC_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+```
+```{r}
+MBC_p1 <- ggplot(MBC_pop_long, aes(x=time, y = value, group = responder, color =responder)) + geom_line(size = 1) + 
+
+  geom_hline(yintercept = 0.03215, linetype = "dashed", color = "black", size = 0.5) +
+
+  geom_text(aes(x = max(MBC_pop_long$time) + 10, y = 0.03215, label = "0.03215"), vjust = 2, size = 4, color = "black") +
+
+  
+
+  labs(x = "Time after primary vaccination (days)", y = "Percentage of S+ MBCs out of total B cells (%)",
+        color = "Responders" ) +
+    theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+  ) #+# scale_x_continuous( breaks = seq(0, 1000, by = 100))
+
+MBC_p1  
+```
+
+
+########## nAb ##########
+```{r}
+
+nAB_pop <- read.csv("nAB_pop.csv")
+
+nAB_pop_long <- nAB_pop %>%
+  # Pivot the specified columns into long format
+  pivot_longer(
+    cols = c(best_fit,Min30, Max30), # Min95, Max95, Min50, Max50, ),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  # Create the 'responder' column based on the 'variable' column
+  mutate(
+    responder = case_when(
+      variable == "best_fit" ~ "Mean Responder",
+      variable == "Min30" ~ "30% Worst Responder",
+      variable == "Max30" ~ "30% Best Responder",
+      TRUE ~ NA_character_  # Fallback for unexpected cases
+    )
+  )
+
+nAB_pop_long
+nAB_pop_long$responder <- factor(nAB_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+```
+```{r}
+nAB_p1 <- ggplot(subset(nAB_pop_long,Immu_group == 2), aes(x=time, y = value, group = responder, color =responder)) + geom_line(size = 1) + 
+
+ # geom_hline(yintercept = 80.3, linetype = "dashed", color = "black", size = 0.5) +
+  geom_hline(yintercept = 200, linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 340, xend = 340, y = -100, yend = 200, 
+               linetype = "dashed", color = "black", size = 0.5) +
+   geom_segment(x = 497, xend = 497, y = -100, yend = 200, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 409, xend = 409, y = -100, yend = 200, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  
+  
+   geom_text(aes(x = 340, y = -0.8, label = "340"), hjust = 1,vjust= 1, size = 4, color = "black") +
+  geom_text(aes(x = 497, y = -0.8, label = "497"), hjust = 1, vjust= 1, size = 4, color = "black") +
+  geom_text(aes(x = 409, y = -0.8, label = "409"), hjust = 1,vjust= 1,  size = 4, color = "black") +
+  
+  geom_text(aes(x = max(nAB_pop_long$time) + 10, y = 200, label = "200"), vjust = -1, size = 4, color = "black") +
+  
+
+  labs(x = "Time after primary vaccination (days)", y = "nAb (sVNT50 titers)",
+        color = "Responders" ) +
+    theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+   
+  ) 
+nAB_p1  
+```
+########## IgG ##########
+```{r}
+IgG_pop <- read.csv("IgG_pop.CSV")
+
+IgG_pop_long <- IgG_pop %>%
+  # Pivot the specified columns into long format
+  pivot_longer(
+    cols = c(best_fit,Min30, Max30), # Min95, Max95, Min50, Max50, ),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  # Create the 'responder' column based on the 'variable' column
+  mutate(
+    responder = case_when(
+      variable == "best_fit" ~ "Mean Responder",
+      variable == "Min30" ~ "30% Worst Responder",
+      variable == "Max30" ~ "30% Best Responder",
+      TRUE ~ NA_character_  # Fallback for unexpected cases
+    )
+  )
+
+IgG_pop_long
+IgG_pop_long$responder <- factor(IgG_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+
+```
+```{r}
+igg_p1 <- ggplot(subset(IgG_pop_long,Immu_group == 2), aes(x=time, y = value, group = responder, color =responder)) + geom_line(size = 1) + 
+
+  geom_hline(yintercept = 21.3, linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 460, xend = 460, y = -100, yend = 21.3, 
+               linetype = "dashed", color = "black", size = 0.5) +
+   geom_segment(x = 786, xend = 786, y = -100, yend = 21.3, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  geom_segment(x = 620, xend = 620, y = -100, yend = 21.3, 
+               linetype = "dashed", color = "black", size = 0.5) +
+  
+   geom_text(aes(x = 460, y = 0, label = "460"), hjust = 1,vjust= 1.2, size = 4, color = "black") +
+  geom_text(aes(x = 786, y = -0, label = "786"), hjust = 1, vjust= 1.2, size = 4, color = "black") +
+  geom_text(aes(x = 620, y = -0, label = "620"), hjust = 1,vjust= 1.2,  size = 4, color = "black") + 
+  geom_text(aes(x = max(IgG_pop_long$time) + 10, y = 21.3, label = "21.3"), vjust = -1, size = 4, color = "black") +
+ # geom_text(aes(x = max(IgG_period1$time) + 10, y = 14.17, label = "14.17"), vjust = 1.5, size = 4, color = "black") +
+  
+
+  labs(x = "Time after primary vaccination (days)", y = "Anti-S-IgG  (U/ml)",
+        color = "Responders" ) +
+    theme(
+    axis.text = element_text(colour = "black", size = 12),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+   
+  ) 
+
+igg_p1  
+```

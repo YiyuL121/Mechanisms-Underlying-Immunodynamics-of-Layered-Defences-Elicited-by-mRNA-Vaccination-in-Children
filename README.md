@@ -10,7 +10,7 @@ This repository contains supporting files for the results reported in "Mechanism
    - Feature 2: Survival analysis: Cox-PH model with time-varying covariate 
    - Feature 3: Estimation of the protection duration of children with hybrid immunity
 
-### Data 
+### Data (some datasets are not available)
   - Monolix output (biomarkers): population parameters, estimated individual parameters, simulated individual parameters
   - Original data: biomarkers raw data, individual immunity-conferring event information (immu_detail_individuals.csv) 
   - Simulated data: simulated biomarker trajectories for survival analysis and protection estimation

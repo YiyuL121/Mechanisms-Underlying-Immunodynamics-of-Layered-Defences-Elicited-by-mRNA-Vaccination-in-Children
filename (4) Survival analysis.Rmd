@@ -312,14 +312,14 @@ summary(fit.tdc)
 
 ## for merged simulated data, filter children who got infection after day 30
 ```{r}
-b4_hybrid <- subset(inf_info,max_t>30) %>% dplyr::select(ID,inf, max_t) 
+b4_hybrid <- subset(inf_info,max_t>=30) %>% dplyr::select(ID,inf, max_t) 
 b4_hybrid 
 count<- b4_hybrid %>%
   group_by(inf) %>%
   summarise(count = n()) 
 count # n =69
 ```
-###### Based on the starting and ending of each child, slice the data
+################### Based on the starting and ending of each child, slice the data
 ```{r}
 b4_hybrid_data <- list()
 for (i in seq_along(b4_hybrid$ID)) {
@@ -331,7 +331,7 @@ for (i in seq_along(b4_hybrid$ID)) {
 
 b4_hybrid_data <- bind_rows(b4_hybrid_data) 
 ```
-####### Create the survival dataset for the time-varying covariate Cox-Ph model
+################### Create the survival dataset for the time-varying covariate Cox-Ph model
 ```{r}
 # process the event information
 df<-tmerge(b4_hybrid,b4_hybrid,id=ID,

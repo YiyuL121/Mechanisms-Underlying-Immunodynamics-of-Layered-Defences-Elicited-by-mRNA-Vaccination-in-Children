@@ -24,21 +24,21 @@ IFNg_pop_long <- IFNg_pop %>%
   mutate(
     responder = case_when(
       variable == "best_fit" ~ "Mean Responder",
-      variable == "Min30" ~ "30% Worst Responder",
-      variable == "Max30" ~ "30% Best Responder",
+      variable == "Min30" ~ "30% Weakest Responder",
+      variable == "Max30" ~ "30% Strongest Responder",
       TRUE ~ NA_character_  # Fallback for unexpected cases
     )
   )
 
 IFNg_pop_long
-IFNg_pop_long$responder <- factor(IFNg_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+IFNg_pop_long$responder <- factor(IFNg_pop_long$responder, levels = c("30% Weakest Responder", "Mean Responder", "30% Strongest Responder"))
 ```
 
 ##################### Approach 1: intersection with predefined threshold ###############
 ############ Compute the intersections ##########
 ```{r}
 subset_data <- IFNg_pop_long %>%
-  filter(immu == 2, responder == "30% Worst Responder") %>%
+  filter(immu == 2, responder == "30% Weakest Responder") %>%
   arrange(time)
 first_time_point <- subset_data %>%
   filter(time > 400, value < 19.55) %>%
@@ -46,7 +46,7 @@ first_time_point <- subset_data %>%
   pull(time)
 first_time_point
 subset_data <- IFNg_pop_long %>%
-  filter(immu == 2, responder == "30% Best Responder") %>%
+  filter(immu == 2, responder == "30% Strongest Responder") %>%
   arrange(time)
 first_time_point <- subset_data %>%
   filter(time > 400, value < 19.55) %>%
@@ -160,14 +160,14 @@ beta <- coef(fit.tdc)["log_IFNg"]  # Coefficient for log_IFNg
     #risk_prob = risk_prob
   )
   
-  result$responder <- factor(result$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+  result$responder <- factor(result$responder, levels = c("30% Weakest Responder", "Mean Responder", "30% Strongest Responder"))
   result
 ```
 ###############################
 ######## PLOT FIGURE 6B #######
 ###############################
 ```{r}
-#date_15 <- 54 #date when peak ab level 15 drop under 80% protection
+#date_15 <- 54 #date when peak ab level 15 drops under 80% protection
 date_20 <- 487
 date_30 <- 582
 date_45 <- 740
@@ -218,7 +218,7 @@ p
 ################## Sensitivity Analysis: Different timing of infection ###########################
 ##################################################################################################
 
-############## ODE function allows us to input different timing of infection, and simulate the trajectories ##############
+############## ODE function allows us to input different timings of infection, and simulate the trajectories ##############
 ```{r}
 ode_ifng_surv <- function(pars, tstop_ind, t_inf) {
   # Extract parameters
@@ -428,14 +428,14 @@ MBC_pop_long <- MBC_pop %>%
   mutate(
     responder = case_when(
       variable == "best_fit" ~ "Mean Responder",
-      variable == "Min30" ~ "30% Worst Responder",
-      variable == "Max30" ~ "30% Best Responder",
+      variable == "Min30" ~ "30% Weakest Responder",
+      variable == "Max30" ~ "30% Strongest Responder",
       TRUE ~ NA_character_  # Fallback for unexpected cases
     )
   )
 
 MBC_pop_long
-MBC_pop_long$responder <- factor(MBC_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+MBC_pop_long$responder <- factor(MBC_pop_long$responder, levels = c("30% Weakest Responder", "Mean Responder", "30% Strongest Responder"))
 ```
 ```{r}
 MBC_p1 <- ggplot(MBC_pop_long, aes(x=time, y = value, group = responder, color =responder)) + geom_line(size = 1) + 
@@ -483,14 +483,14 @@ nAB_pop_long <- nAB_pop %>%
   mutate(
     responder = case_when(
       variable == "best_fit" ~ "Mean Responder",
-      variable == "Min30" ~ "30% Worst Responder",
-      variable == "Max30" ~ "30% Best Responder",
+      variable == "Min30" ~ "30% Weakest Responder",
+      variable == "Max30" ~ "30% Strongest Responder",
       TRUE ~ NA_character_  # Fallback for unexpected cases
     )
   )
 
 nAB_pop_long
-nAB_pop_long$responder <- factor(nAB_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+nAB_pop_long$responder <- factor(nAB_pop_long$responder, levels = c("30% Weakest Responder", "Mean Responder", "30% Strongest Responder"))
 ```
 ```{r}
 nAB_p1 <- ggplot(subset(nAB_pop_long,Immu_group == 2), aes(x=time, y = value, group = responder, color =responder)) + geom_line(size = 1) + 
@@ -546,14 +546,14 @@ IgG_pop_long <- IgG_pop %>%
   mutate(
     responder = case_when(
       variable == "best_fit" ~ "Mean Responder",
-      variable == "Min30" ~ "30% Worst Responder",
-      variable == "Max30" ~ "30% Best Responder",
+      variable == "Min30" ~ "30% Weakest Responder",
+      variable == "Max30" ~ "30% Strongest Responder",
       TRUE ~ NA_character_  # Fallback for unexpected cases
     )
   )
 
 IgG_pop_long
-IgG_pop_long$responder <- factor(IgG_pop_long$responder, levels = c("30% Worst Responder", "Mean Responder", "30% Best Responder"))
+IgG_pop_long$responder <- factor(IgG_pop_long$responder, levels = c("30% Weakest Responder", "Mean Responder", "30% Strongest Responder"))
 
 ```
 ```{r}

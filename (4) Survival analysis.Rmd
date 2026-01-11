@@ -270,7 +270,7 @@ df_processed <- tmerge(df,merged_data_immu_30,id=ID, # First argument: df: prima
  Anti_S_IgG=tdc(Days,Anti_S_IgG),
  IL2 = tdc(Days, IL2),
  Spike_MBC = tdc(Days, Spike_MBC),
- IC50 = tdc(Days, IC50),
+ nAb = tdc(Days, nAb),
  IFNg = tdc(Days, IFNg)) %>% na.omit() %>%
   mutate(
     scale_IgG = scale(log_Anti_S_IgG),

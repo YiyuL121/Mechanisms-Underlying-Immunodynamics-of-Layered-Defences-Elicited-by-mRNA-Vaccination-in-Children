@@ -71,44 +71,49 @@ raw_merged_data <- raw_igG[,c(1:3)] %>%
 ```
 
 
-
 ################################################################################
 ####################### Plot correlations, S Figure 7 ##########################
 ################################################################################
 
 ```{r}
-cor_data <- merged_data %>%
-  group_by(ID) %>% slice(218:392) %>%  ungroup() %>% dplyr::select( log_IgG, log_nAb, log_MBC, log_IFNg, log_IL2) # This example of slice:218-392 is representing 6M-12M, change it to 30-123/124-217 to obtain results for 30D-3M and 3M-6M
-#cor_data <- raw_merged_data %>% dplyr::select( log_IgG, log_nAb, log_MBC, log_IFNg, log_IL2) # This line is for S-Fig-7-1
+cor_data <- raw_merged_data %>% dplyr::select( log_IgG, log_nAb, log_MBC, log_IFNg) #, log_IL2)
 
 # Custom correlation panel with color
 cor_fun_colored <- function(data, mapping, method = "spearman", ...){
   x <- eval_data_col(data, mapping$x)
   y <- eval_data_col(data, mapping$y)
-  
   corr <- cor(x, y, method = method, use = "complete.obs")
   p_val <- cor.test(x, y, method = method)$p.value
-  
   stars <- symnum(p_val, 
                   cutpoints = c(0, 0.001, 0.01, 0.05, 1),
                   symbols = c("***", "**", "*", ""))
-  
-  # Use absolute correlation to define color intensity
-  col <- gradient_n_pal(c("#FFE5CC", "#FF6600", "#990000"))(abs(corr))  # light to strong red/orange
-  
+  col <- gradient_n_pal(c("#FFE5CC", "#FF6600", "#990000"))(abs(corr)) 
   ggally_text(
     label = paste0("Corr:\n", sprintf("%.3f", corr), stars),
     mapping = aes(),
     color = col,
-    size = 5,
+    size = 6,
     ...
   )
 }
 cor_plot <- ggpairs(
   cor_data,
-  lower = list(continuous = wrap("points", alpha = 0.5, size = 0.4)),
+  columnLabels = c("Anti-S IgG", "nAbs", "S+MBCs", "T cell response"),
+ # lower = list(continuous = wrap("points", alpha = 0.3, size = 1, position = position_jitter(width = 0.2, height = 0.2))),
+ lower = list(
+    continuous = function(data, mapping, ...) {
+      ggplot(data = data, mapping = mapping) +
+        geom_point(alpha = 1, size = 0.7, color = "black") + # Tiny, semi-transparent points
+        geom_smooth(method = "lm", color = "red", size = 0.5, se = FALSE) + # Add linear trend line
+        theme_minimal()
+    }
+  ),
+ 
   upper = list(continuous = cor_fun_colored),
-  diag = list(continuous = wrap("densityDiag", color = "blue"))
+ #upper = list(continuous = wrap("cor", size = 5)),  # increase/decrease font
+   diag = list(
+    continuous = wrap("densityDiag", fill = "grey90", color = "blue", alpha = 0.5)
+  )
 ) +
   theme_minimal() +
   theme(
@@ -116,9 +121,9 @@ cor_plot <- ggpairs(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     panel.spacing = unit(0, "lines"),
     strip.background = element_rect(fill = "gray90", color = NA),
-    strip.text = element_text(size = 10, face = "bold", color = "black"),
-    axis.text = element_text(size = 10),
-    axis.title = element_text(size = 10)
+    strip.text = element_text(size = 11, face = "bold", color = "black"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 12)
   )
 
 print(cor_plot)
@@ -303,7 +308,70 @@ fit.tdc <- coxph(Surv(tstart,tstop,endpt)~   # Choose the biomarker you want to 
 summary(fit.tdc)
 ```
 
+################## After the piece-wise Cox model, we validate the immune correlates using bootstrap ################
+```{r}
+unique_ids <- unique(df_processed$ID)
+n_ids <- length(unique_ids)
+n_ids
+```
+```{r}
+formula_boot <- Surv(tstart, tstop, endpt) ~ scale_nAb + scale_MBC + scale_IFNg + cluster(ID)
 
+# Setup Bootstrap
+set.seed(321)       
+n_boot <- 1000     
+results <- matrix(NA, nrow = n_boot, ncol = 3) # Matrix to store 3 coefficients
+colnames(results) <- c("log_nAb", "log_Spike_MBC", "log_IFNg")
+
+unique_ids <- unique(df_processed$ID)
+n_ids <- length(unique_ids)
+cat("Starting Bootstrap Validation (B =", n_boot, ")... \n")
+
+for(i in 1:n_boot) {
+  
+  # Resample IDs with replacement (Cluster Bootstrap)
+  sample_ids <- sample(unique_ids, n_ids, replace = TRUE)
+  
+  # Reconstruct the dataset based on sampled IDs
+  # We iterate through the sampled IDs and grab their rows from df_processed
+  # This preserves the time-dependent structure for each child
+  boot_data_list <- lapply(sample_ids, function(id) {
+    df_processed[df_processed$ID == id, ]
+  })
+  boot_data <- do.call(rbind, boot_data_list)
+  
+  # Fit the Cox Model on this new 'boot_data'
+  # We use tryCatch to skip iterations where the model fails to converge 
+  tryCatch({
+    fit_boot <- coxph(formula_boot, data = boot_data)
+    results[i, ] <- coef(fit_boot) # Store the coefficients
+  }, error = function(e) {
+    results[i, ] <- NA # Mark as NA if fit fails
+  })
+  if(i %% 100 == 0) cat("Iteration", i, "completed\n")
+}
+
+#Analyze Results (Calculate 95% Confidence Intervals)
+# Remove any failed iterations
+results_clean <- na.omit(results)
+
+# Calculate the 2.5% and 97.5% quantiles (95% CI)
+ci_lower <- apply(results_clean, 2, quantile, probs = 0.025)
+ci_upper <- apply(results_clean, 2, quantile, probs = 0.975)
+
+# Compare these CIs to 0. If the CI for log_IFNg excludes 0, your T-cell finding is robust.
+final_validation <- rbind(
+  "Coeff_Median" = apply(results_clean, 2, median),
+  "CI_Lower"   = ci_lower,
+  "CI_Upper"   = ci_upper
+)
+print(final_validation)
+```
+```{r}
+# Hazard Ratio CI = exp(CI_Lower) to exp(CI_Upper)
+print("Hazard Ratio 95% CIs:")
+print(exp(rbind(apply(results_clean, 2, median),ci_lower, ci_upper)))
+```
 
 ##################################################################################################################################
 ################################## Global Analysis: Children without hybrid immunity #############################################

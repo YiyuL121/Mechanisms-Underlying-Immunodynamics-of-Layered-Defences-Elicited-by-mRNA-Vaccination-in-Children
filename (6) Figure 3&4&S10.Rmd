@@ -400,3 +400,99 @@ coeff_plot4 <- ggplot(coeff_data, aes(x = Biomarker, y = Coeff_Statistic , fill 
 # Print the plot
 print(coeff_plot4)
 ```
+
+
+
+##############################################################
+#################### Figure S10 ##############################
+##############################################################
+
+```{r}
+
+C_index_df <- data.frame(
+  Group = c(rep("Hybrid-Immune", 3), rep("Vaccine-Only", 3)),
+  Period = c("30D-3M", "3M-6M", "6M-12M", "30D-3M", "3M-6M", "6M-12M"),
+  Full_Model = c(0.728, 0.824, 0.789, 0.725, 0.726, 0.662),
+  Leave_nAbs = c(0.609, 0.815, 0.779, 0.614, 0.717, 0.642),
+  Leave_MBC  = c(0.698, 0.813, 0.768, 0.696, 0.717, 0.605),
+  Leave_IFNg = c(0.721, 0.720, 0.722, 0.713, 0.653, 0.629)
+)
+
+
+plot_data <- C_index_df %>%
+  pivot_longer(cols = c(Leave_nAbs, Leave_MBC, Leave_IFNg),
+               names_to = "Variable_Removed",
+               values_to = "C_Index") %>%
+  mutate(
+
+    Variable_Removed = case_when(
+      Variable_Removed == "Leave_nAbs" ~ "nAbs",
+      Variable_Removed == "Leave_MBC" ~ "S+ MBCs",
+      Variable_Removed == "Leave_IFNg" ~ "T cell response",
+      TRUE ~ Variable_Removed
+    ),
+
+    Variable_Removed = factor(Variable_Removed, levels = c("nAbs", "S+ MBCs", "T cell response")),
+    Period = factor(Period, levels = c("30D-3M", "3M-6M", "6M-12M"))
+  )
+
+
+p_hybrid <- ggplot(data = subset(plot_data, Group == "Hybrid-Immune"), 
+                   aes(x = Variable_Removed, y = C_Index)) +
+  
+
+  geom_bar(stat = "identity", aes(fill = Variable_Removed), 
+           width = 0.7, alpha = 0.8) +
+  
+
+  geom_hline(aes(yintercept = Full_Model), linetype = "dashed", color = "black", size = 0.8) +
+  
+
+  facet_wrap(~ Period) +
+  scale_y_continuous(limits = c(0.5, 0.9), oob = scales::rescale_none) + # Zoom in to relevant range
+  scale_fill_manual(values = c("#C43E8B", "#C43E8B", "#C43E8B")) + # Your "Red/Pink" hybrid colors
+  labs(
+    title = "Variable Importance by C-Index Drop (Hybrid-Immune)",
+   # subtitle = "Dashed Line = Full Model Performance. Gap = Contribution of Variable.",
+    y = "C-Index (Concordance)",
+    x = "Variable Removed from Model"
+  ) +
+  theme_classic() +
+  theme(
+    strip.background = element_rect(fill = "grey95", color = NA),
+    strip.text = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(face = "bold",angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+
+p_vaccine <- ggplot(data = subset(plot_data, Group == "Vaccine-Only"), 
+                    aes(x = Variable_Removed, y = C_Index)) +
+  
+  geom_bar(stat = "identity", aes(fill = Variable_Removed), 
+           width = 0.7, alpha = 0.8) +
+  
+  geom_hline(aes(yintercept = Full_Model), linetype = "dashed", color = "black", size = 0.8) +
+  
+  facet_wrap(~ Period) +
+  
+  scale_y_continuous(limits = c(0.5, 0.9), oob = scales::rescale_none) +
+  scale_fill_manual(values = c("#3A75C4", "#3A75C4", "#3A75C4")) + # Your "Blue" vaccine colors
+  labs(
+    title = "Variable Importance by C-Index Drop (Vaccine-Only)",
+    y = "C-Index (Concordance)",
+    x = "Variable Removed from Model"
+  ) +
+  theme_classic() +
+  theme(
+    strip.background = element_rect(fill = "grey95", color = NA),
+    strip.text = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(face = "bold",angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+
+print(p_hybrid)
+print(p_vaccine)
+```
+
+
+################## END ##################

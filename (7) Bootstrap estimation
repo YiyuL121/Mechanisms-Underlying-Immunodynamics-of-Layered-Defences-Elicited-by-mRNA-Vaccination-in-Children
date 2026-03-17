@@ -1,0 +1,649 @@
+#####################################################################################################################
+################## This code contains bootstrap validation with re-estimated trajectories on Monolix ################
+#####################################################################################################################
+
+```{r}
+# 1. Load libraries
+library(survival)
+library(dplyr)
+# Initialize Monolix API (Update the path to your Monolix installation)
+library(lixoftConnectors)
+library(tidyr)
+library(Rsmlx)
+library(ggplot2)
+library(deSolve)
+library(purrr)
+```
+```{r}
+initializeLixoftConnectors(software="monolix", path="C:/Program Files/Lixoft/MonolixSuite2024R1")
+```
+```{r}
+mlxtran_files <- c("igg_monolix.mlxtran", "nab_monolix.mlxtran", "mbc.mlxtran", "Tcell.mlxtran")
+df_IgG   <- read.csv("igg_raw.csv")
+df_nAb   <- read.csv("nab_raw.csv")
+df_MBC   <- read.csv("mbc_raw.csv")
+df_Tcell <- read.csv("Tcell_raw.csv")
+
+# Extract the master list of unique IDs 
+master_IDs <- unique(df_IgG$ID)
+N <- length(master_IDs)
+B <- 1000 # Number of bootstraps (start with 2 for testing)
+```
+
+
+
+
+
+##################################################################
+################## Function: fitting monolix on R ################
+##################################################################
+
+```{r}
+all_ebes_list     <- list() # Stores all parameters from Monolix
+all_mappings_list <- list() # Stores the ID mapping
+
+for(i in 1:B) {
+  cat("\n=== GENERATING BOOTSTRAP", i, "===\n")
+  
+  # 1. Resample and save the exact ID mapping 
+  boot_ids <- sample(master_IDs, size = N, replace = TRUE)
+  all_mappings_list[[i]] <- data.frame(id = as.character(1:N), ID = boot_ids)
+  
+  # 2. Construct the 4 temporary datasets
+  boot_df_IgG <- data.frame(); boot_df_nAb <- data.frame(); boot_df_MBC <- data.frame(); boot_df_Tcell <- data.frame()
+  for(new_id in 1:length(boot_ids)) {
+    target <- boot_ids[new_id]
+    
+    tmp_IgG <- df_IgG[df_IgG$ID == target, ]; if(nrow(tmp_IgG)>0){tmp_IgG$ID <- new_id; boot_df_IgG <- rbind(boot_df_IgG, tmp_IgG)}
+    tmp_nAb <- df_nAb[df_nAb$ID == target, ]; if(nrow(tmp_nAb)>0){tmp_nAb$ID <- new_id; boot_df_nAb <- rbind(boot_df_nAb, tmp_nAb)}
+    tmp_MBC <- df_MBC[df_MBC$ID == target, ]; if(nrow(tmp_MBC)>0){tmp_MBC$ID <- new_id; boot_df_MBC <- rbind(boot_df_MBC, tmp_MBC)}
+    tmp_Tcell <- df_Tcell[df_Tcell$ID == target, ]; if(nrow(tmp_Tcell)>0){tmp_Tcell$ID <- new_id; boot_df_Tcell <- rbind(boot_df_Tcell, tmp_Tcell)}
+  }
+  
+  f_IgG <- paste0("temp_IgG_", i, ".csv"); f_nAb <- paste0("temp_nAb_", i, ".csv")
+  f_MBC <- paste0("temp_MBC_", i, ".csv"); f_Tcell <- paste0("temp_Tcell_", i, ".csv")
+  write.csv(boot_df_IgG, f_IgG, row.names=F, na=".", quote=F); write.csv(boot_df_nAb, f_nAb, row.names=F, na=".", quote=F)
+  write.csv(boot_df_MBC, f_MBC, row.names=F, na=".", quote=F); write.csv(boot_df_Tcell, f_Tcell, row.names=F, na=".", quote=F)
+  
+  # 3. Run Monolix with disposable projects
+  cat("  -> Running Monolix Models...\n")
+  files <- c("4k_r19.mlxtran", "4k_r22_symp.mlxtran", "full_71_r34_4.mlxtran", "r12.mlxtran")
+  temps <- c(f_IgG, f_nAb, f_MBC, f_Tcell)
+  names <- c("IgG", "nAb", "MBC", "Tcell")
+  iter_params <- list() 
+  success <- TRUE
+
+  for(m in 1:4) {
+    tryCatch({
+      disposable_proj <- paste0("temp_run_", names[m], ".mlxtran")
+      file.copy(from = files[m], to = disposable_proj, overwrite = TRUE)
+      Sys.sleep(0.2) 
+      loadProject(disposable_proj)
+      setData(dataFile = temps[m], headerTypes = getData()$headerTypes)
+      runPopulationParameterEstimation()
+      runConditionalModeEstimation()
+      Sys.sleep(0.5)
+      
+      raw_ebes <- getEstimatedIndividualParameters()$conditionalMode
+      iter_params[[names[m]]] <- left_join(raw_ebes, all_mappings_list[[i]], by = "id")
+      
+    }, error = function(e) { 
+      cat("      [!] CRASH DETECTED on", names[m], "->", conditionMessage(e), "\n")
+      success <<- FALSE 
+    })
+    
+    if(!success) {
+      break
+    }
+  }
+  
+  # 4. Save to master storage
+  if(success) {
+    all_ebes_list[[i]] <- iter_params
+    cat("  -> [SUCCESS] Parameters stored in memory.\n")
+  } else {
+    all_ebes_list[[i]] <- NA 
+    cat("  -> [FAILED] Monolix convergence issue. Skipping to next bootstrap...\n")
+  }
+  
+  # 5. Clean up temporary CSVs and disposable Monolix files
+  file.remove(temps)
+  suppressWarnings(file.remove(paste0("temp_run_", names, ".mlxtran")))
+}
+cat("\n=== DATA GENERATION COMPLETE ===\n")
+```
+##################################################################
+################### Construct the trajectories ###################
+##################################################################
+
+###########################
+########## IgG ############
+###########################
+```{r}
+library(deSolve)
+library(dplyr)
+library(purrr)
+
+Tmin <- 0
+Tmax <- 450 
+step_size <- 1
+times <- c(seq(Tmin, Tmax, step_size))
+
+ode_ab_ind <- function(pars, immunity) { 
+  
+  # Safe extraction using names
+  k1 <- as.numeric(pars["k1"]) 
+  k2 <- as.numeric(pars["k2"]) 
+  k3 <- as.numeric(pars["k3"]) 
+  k4 <- as.numeric(pars["k4"]) 
+  A0 <- as.numeric(pars["A0"]) 
+  tau <- as.numeric(pars["tau"])  
+  
+  # Safe extraction using column names from your immunity df
+  t_inf <- as.numeric(immunity$t_inf)
+  t_boost <- as.numeric(immunity$t_boost)
+  t_inf_2 <- as.numeric(immunity$t_inf_2)
+  immu <- as.numeric(immunity$immu)
+  
+  adjusted <- min(t_inf+tau, t_boost) 
+  
+  infection <- data.frame(times = times, VV = rep(0, length(times)), VVI = rep(0, length(times)),VVV = rep(0, length(times)), 
+                          VVIV = rep(0, length(times)),VVIVI = rep(0, length(times)),VVII = rep(0, length(times)))
+  
+  infection <- infection %>% mutate(
+    VV = case_when(times <= tau ~ k1, times > tau ~ -k2),
+    VVI = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= t_inf+tau ~ k3, times > t_inf+tau ~ -k4),
+    VVV = case_when(times <= tau ~ k1, times > tau & times <= t_boost ~ -k2, times > t_boost & times <= t_boost+tau ~ k3, times > t_boost+tau ~ -k4),
+    VVIV = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= adjusted ~ k3, times > adjusted & times <= t_boost ~ -k4, times > t_boost & times <= t_boost+tau ~ k3, times > t_boost+tau ~ -k4),
+    VVIVI = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= adjusted ~ k3, times > adjusted & times <= t_boost ~ -k4, times > t_boost & times <= t_boost+tau ~ k3, times > t_boost+tau & times <= t_inf_2 ~ -k4, times > t_inf_2 & times <= t_inf_2+tau ~ k3, times > t_inf_2+tau  ~ -k4),
+    VVII = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= t_inf+tau ~ k3, times > t_inf+tau & times <= t_inf_2 ~ -k4, times > t_inf_2 & times <= t_inf_2+tau ~ k3, times > t_inf_2+tau  ~ -k4)
+  )
+  
+  k_t <- approxfun(infection$times, infection[,immu+1], rule = 2) 
+  
+  derivs<-function(times,y,pars,k_t){
+    with(as.list(c(pars,y)),{
+      k <- k_t(times)   
+      dA <- k*A
+      return(list(c(dA)))
+    })
+  }
+  
+  y <- c(A=A0)
+  out <- ode(y=y, parms=pars, times=times, func=derivs, k_t=k_t)
+  return(as.data.frame(out))
+}
+
+calc_iteration_trajectories <- function(ebe_df, immunity_master) {
+  # ebe_df is the dataframe for ONE biomarker for ONE bootstrap iteration
+  Fit <- list()
+  for(i in 1:nrow(ebe_df)){
+    # 1. Grab parameters for this virtual kid
+    pars <- c(k1 = ebe_df$k1[i],
+              k2 = ebe_df$k2[i],
+              k3 = ebe_df$k3[i],
+              k4 = ebe_df$k4[i],
+              A0 = ebe_df$A0[i],
+              tau = ebe_df$tau[i])
+    
+    # 2. Get the REAL ID and pull their specific immunity history
+    real_id <- ebe_df$ID[i]
+    immu_i <- immunity_master[immunity_master$ID == real_id, ]
+    
+    # 3. Calculate ODE
+    fitted <- ode_ab_ind(pars, immu_i)
+    
+    # 4. Save the trajectory with the virtual 'id' and real 'ID' attached
+    Fit[[i]] <- data.frame(
+      Virtual_id = ebe_df$id[i], 
+      Real_ID = real_id,
+      Days = times,
+      Trajectory = fitted$A
+    )
+  }
+  # Combine all 70 children into one clean dataframe
+  return(bind_rows(Fit))
+}
+```
+
+###########################
+########## nAb ############
+###########################
+```{r}
+ode_nab_ind <- function(pars, immunity) { 
+  
+  k1 <- as.numeric(pars["k1"]) 
+  k2 <- as.numeric(pars["k2"]) 
+  k3 <- as.numeric(pars["k3"]) 
+  k4 <- as.numeric(pars["k4"]) 
+  A0 <- as.numeric(pars["A0"]) 
+  tau <- as.numeric(pars["tau"])  
+  
+  t_inf <- as.numeric(immunity$t_inf)
+  t_boost <- as.numeric(immunity$t_boost)
+  t_inf_2 <- as.numeric(immunity$t_inf_2)
+  immu <- as.numeric(immunity$immu)
+  
+  adjusted <- min(t_inf+tau, t_boost) 
+  
+  infection <- data.frame(times = times, VV = rep(0, length(times)), VVI = rep(0, length(times)),VVV = rep(0, length(times)), 
+                          VVIV = rep(0, length(times)),VVIVI = rep(0, length(times)),VVII = rep(0, length(times)))
+  
+  infection <- infection %>% mutate(
+    VV = case_when(times <= tau ~ k1, times > tau ~ -k2),
+    VVI = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= t_inf+tau ~ k3, times > t_inf+tau ~ -k4),
+    VVV = case_when(times <= tau ~ k1, times > tau & times <= t_boost ~ -k2, times > t_boost & times <= t_boost+tau ~ k3, times > t_boost+tau ~ -k4),
+    VVIV = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= adjusted ~ k3, times > adjusted & times <= t_boost ~ -k4, times > t_boost & times <= t_boost+tau ~ k3, times > t_boost+tau ~ -k4),
+    VVIVI = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= adjusted ~ k3, times > adjusted & times <= t_boost ~ -k4, times > t_boost & times <= t_boost+tau ~ k3, times > t_boost+tau & times <= t_inf_2 ~ -k4, times > t_inf_2 & times <= t_inf_2+tau ~ k3, times > t_inf_2+tau  ~ -k4),
+    VVII = case_when(times <= tau ~ k1, times > tau & times <= t_inf ~ -k2, times > t_inf & times <= t_inf+tau ~ k3, times > t_inf+tau & times <= t_inf_2 ~ -k4, times > t_inf_2 & times <= t_inf_2+tau ~ k3, times > t_inf_2+tau  ~ -k4)
+  )
+  
+  k_t <- approxfun(infection$times, infection[,immu+1], rule = 2) 
+  
+  derivs<-function(times,y,pars,k_t){
+    with(as.list(c(pars,y)),{
+      k <- k_t(times)   
+      dA <- k*A
+      return(list(c(dA)))
+    })
+  }
+  
+  y <- c(A=A0)
+  out <- ode(y=y, parms=pars, times=times, func=derivs, k_t=k_t)
+  return(as.data.frame(out))
+}
+```
+
+```{r}
+calc_nab_trajectories <- function(ebe_df, immunity_master) {
+  Fit <- list()
+  
+  for(i in 1:nrow(ebe_df)){
+    pars <- c(k1 = ebe_df$k1[i],
+              k2 = ebe_df$k2[i],
+              k3 = ebe_df$k3[i],
+              k4 = ebe_df$k4[i],
+              A0 = ebe_df$A0[i],
+              tau = ebe_df$tau[i])
+    
+    real_id <- ebe_df$ID[i]
+    immu_i <- immunity_master[immunity_master$ID == real_id, ]
+    
+    # Strictly calling the new nAb ODE function
+    fitted <- ode_nab_ind(pars, immu_i)
+    
+    Fit[[i]] <- data.frame(
+      Virtual_id = ebe_df$id[i], 
+      Real_ID = real_id,
+      Days = times,
+      Trajectory = fitted$A
+    )
+  }
+  return(bind_rows(Fit))
+}
+```
+###########################
+########## MBC ############
+###########################
+```{r}
+ode_MBC_pop <- function(pars) {
+  # Safe extraction
+  alpha <- as.numeric(pars["alpha"]) 
+  gamma <- as.numeric(pars["gamma"]) 
+  beta  <- as.numeric(pars["beta"]) 
+  B0    <- as.numeric(pars["B0"]) 
+  
+  times <- c(seq(Tmin, Tmax, step_size))
+  
+  B_cell_model_simple <- function(t, y, pars) {
+    with(as.list(c(pars, y)), {
+      dB <- alpha * exp(-gamma*t) - beta * B 
+      return(list(c(dB)))
+    })
+  }
+  
+  y <- c(B=B0)
+  out <- ode(y=y, parms=pars, times=times, func=B_cell_model_simple)
+  return(as.data.frame(out))
+}
+```
+```{r}
+calc_mbc_trajectories <- function(ebe_df) {
+  # ebe_df is the MBC dataframe for ONE bootstrap iteration
+  Fit <- list()
+  
+  for(i in 1:nrow(ebe_df)){
+    # 1. Grab parameters for this virtual kid
+    pars <- c(alpha = ebe_df$alpha[i],
+              gamma = ebe_df$gamma[i],
+              beta  = ebe_df$beta[i],
+              B0    = ebe_df$B0[i])
+    
+    fitted <- ode_MBC_pop(pars)
+    
+    # Note: If Monolix outputted 'type' as a covariate, you can extract it here using ebe_df$type[i]
+    Fit[[i]] <- data.frame(
+      Virtual_id = ebe_df$id[i], 
+      Real_ID = ebe_df$ID[i],
+      Days = times,
+      Trajectory = fitted$B
+    )
+  }
+  
+  return(bind_rows(Fit))
+}
+```
+
+#############################
+########## Tcell ############
+#############################
+```{r}
+ode_IFNg_pop <- function(pars, immunity) {
+  
+  # Kinetic Parameters
+  alpha_pop  <- as.numeric(pars["alpha_pop"])
+  gamma_pop  <- as.numeric(pars["gamma_pop"])
+  alpha1_pop <- as.numeric(pars["alpha1_pop"])
+  gamma1_pop <- as.numeric(pars["gamma1_pop"])
+  beta_pop   <- as.numeric(pars["beta_pop"])
+  beta1_pop  <- as.numeric(pars["beta1_pop"])
+  A0         <- as.numeric(pars["A0"])
+  
+  # Timing and Status
+  t_inf   <- as.numeric(immunity$t_inf)
+  t_boost <- as.numeric(immunity$t_boost)
+  t_inf2  <- as.numeric(immunity$t_inf_2) 
+  immu    <- as.numeric(immunity$immu)
+  
+  times <- seq(Tmin, Tmax, step_size) 
+  
+  derivs <- function(times, y, pars) {
+    with(as.list(c(pars, y)), {
+    
+      dA <- 0 
+      if (is.na(immu)) {
+        dA <- 0
+      } else if (immu == 1) {
+        dA <- alpha_pop * exp(-gamma_pop * times) - beta_pop * A
+      } else if (immu == 2) {
+        if(t_inf2 <= 0) {
+          if (times <= t_inf) {
+            dA <- alpha_pop * exp(-gamma_pop * times) - beta_pop * A
+          } else if (times > t_inf) {
+            dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf)) - beta1_pop * A
+          }
+        } else if (t_inf2 > 0) {
+          if (times <= t_inf & times <= t_inf2) {
+            dA <- alpha_pop * exp(-gamma_pop * times) - beta_pop * A
+          } else if (times > t_inf & times <= t_inf2) {
+            dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf)) - beta1_pop * A
+          } else if (times > t_inf & times > t_inf2) {
+            dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf2)) - beta1_pop * A
+          }
+        }
+      } else if (immu == 3) {
+        if (times <= t_boost) {
+          dA <- alpha_pop * exp(-gamma_pop * times) - beta_pop * A
+        } else {
+          dA <- alpha1_pop * exp(-gamma1_pop * (times - t_boost)) - beta1_pop * A
+        }
+      } else if (immu == 4) {
+        if (t_inf2 <= 0) {
+          if (t_inf < t_boost) {
+            if (times <= t_inf & times <= t_boost) {
+              dA <- alpha_pop * exp(-gamma_pop * times) - beta_pop * A
+            } else if (times > t_inf & times <= t_boost) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf)) - beta1_pop * A
+            } else if (times > t_inf & times > t_boost) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_boost)) - beta1_pop * A
+            }
+          } else if (t_inf >= t_boost) { 
+            if (times <= t_inf & times <= t_boost) {
+              dA <- alpha_pop * exp(-gamma_pop * times) - beta_pop * A
+            } else if (times <= t_inf & times > t_boost) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_boost)) - beta1_pop * A
+            } else if (times > t_inf & times > t_boost) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf)) - beta1_pop * A
+            }
+          }
+        } else if (t_inf2 > 0) {
+          if (times <= t_inf & times <= t_boost & times <= t_inf2) {
+            dA <- alpha_pop * exp(-gamma_pop * times) - beta_pop * A
+          } else if (t_boost < t_inf2) {
+            if (times > t_inf & times <= t_boost & times <= t_inf2) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf)) - beta1_pop * A
+            } else if (times > t_inf & times > t_boost & times <= t_inf2) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_boost)) - beta1_pop * A
+            } else if (times > t_inf & times > t_boost & times > t_inf2) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf2)) - beta1_pop * A
+            }
+          # PATCHED: changed to >= to catch identical days
+          } else if (t_boost >= t_inf2) {
+            if (times > t_inf & times <= t_boost & times <= t_inf2) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf)) - beta1_pop * A
+            } else if (times > t_inf & times <= t_boost & times > t_inf2) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_inf2)) - beta1_pop * A
+            } else if (times > t_inf & times > t_boost & times > t_inf2) {
+              dA <- alpha1_pop * exp(-gamma1_pop * (times - t_boost)) - beta1_pop * A
+            }
+          }
+        }
+      }
+      return(list(c(dA = dA)))
+    })
+  }
+  
+  y <- c(A = A0)
+  out <- ode(y = y, parms = pars, times = times, func = derivs)
+  return(as.data.frame(out))
+}
+```
+
+```{r}
+calc_tcell_trajectories <- function(ebe_df, immunity_master) {
+  Fit <- list()
+  
+  for(i in 1:nrow(ebe_df)){
+    pars <- c(alpha_pop  = ebe_df$alpha[i],
+              gamma_pop  = ebe_df$gamma[i],
+              alpha1_pop = ebe_df$alpha1[i],
+              gamma1_pop = ebe_df$gamma1[i],
+              beta_pop   = ebe_df$beta[i],
+              beta1_pop  = ebe_df$beta1[i],
+              A0         = ebe_df$A0[i])
+    real_id <- ebe_df$ID[i]
+    immu_i <- immunity_master[immunity_master$ID == real_id, ]
+    fitted <- ode_IFNg_pop(pars, immunity = immu_i)
+    
+    Fit[[i]] <- data.frame(
+      Virtual_id = ebe_df$id[i], 
+      Real_ID = real_id,
+      Days = times,
+      Trajectory = fitted$A
+    )
+  }
+  
+  return(bind_rows(Fit))
+}
+```
+######################################
+############### Combine ##############
+######################################
+
+```{r}
+all_trajectories_list <- list()
+B <- length(all_ebes_list) 
+
+for(i in 1:B) {
+  if(all(is.na(all_ebes_list[[i]]))) next 
+  
+  cat("Calculating Trajectories for Iteration:", i, "\n")
+  
+  # --- 1. IgG ---
+  ebe_IgG  <- all_ebes_list[[i]]$IgG
+  traj_IgG <- calc_iteration_trajectories(ebe_df = ebe_IgG, immunity_master = immu_detail_individuals)
+  
+  # --- 2. nAb ---
+  ebe_nAb  <- all_ebes_list[[i]]$nAb
+  traj_nAb <- calc_nab_trajectories(ebe_df = ebe_nAb, immunity_master = immu_detail_individuals)
+  
+  # --- 3. MBC ---
+  ebe_MBC  <- all_ebes_list[[i]]$MBC
+  traj_MBC <- calc_mbc_trajectories(ebe_df = ebe_MBC)
+  
+  # --- 4. T-Cell ---
+  ebe_Tcell  <- all_ebes_list[[i]]$Tcell
+  traj_Tcell <- calc_tcell_trajectories(ebe_df = ebe_Tcell, immunity_master = immu_detail_individuals)
+  
+  # Store all calculated results for this iteration
+  all_trajectories_list[[i]] <- list(IgG = traj_IgG, nAb = traj_nAb, MBC = traj_MBC, Tcell = traj_Tcell)
+}
+
+cat("\n=== ALL 4 BIOMARKER TRAJECTORIES SUCCESSFULLY CALCULATED ===\n")
+```
+
+
+########################################################################
+################### Survival analysis for each iteration ###############
+########################################################################
+
+
+```{r}
+# read in the infection information for 70 kids 
+inf_info <- read.csv("inf_info.csv")
+inf_info
+```
+```{r}
+B <-length(all_trajectories_list)
+survival_results <- data.frame(
+  Iteration = 1:B,
+  Uni_HR_IgG = NA, Uni_HR_nAb = NA, Uni_HR_MBC = NA, Uni_HR_IFNg = NA,
+  Multi_HR_nAb = NA, Multi_HR_MBC = NA, Multi_HR_IFNg = NA 
+)
+survival_results
+```
+```{r}
+
+head_day <- 123  #  select from 30, 124, 218
+tail_day <- 392 # select from 123, 217, 392
+
+new_inf_sub1 <- inf_info %>% 
+  filter(reinf == 0) %>%
+  mutate(new_inf = ifelse(inf==1 & max_t >= head_day & max_t <= tail_day, 1, 0)) %>%
+  mutate(new_max_t = ifelse(new_inf==1, max_t, tail_day)) 
+
+new_inf_sub2 <- inf_info %>% 
+  filter(reinf == 1) %>%
+  mutate(new_inf = ifelse((max_t >= head_day & max_t <= tail_day) | (time2 >= head_day & time2 <= tail_day), 1, 0)) %>%
+  mutate(new_max_t = ifelse(new_inf==1, max_t, tail_day)) %>%
+  mutate(new_max_t = ifelse(time2 >= head_day & time2 <= tail_day, time2, new_max_t)) %>%
+  mutate(new_max_t = ifelse(head_day < max_t & tail_day > max_t, max_t, new_max_t)) 
+
+# Master Static Outcome Table
+master_new_inf <- rbind(new_inf_sub2, new_inf_sub1) %>%
+  dplyr::select(ID, new_max_t, inf, new_inf) %>%
+  rename(Real_ID = ID) # Rename so it merges perfectly with our trajectories!
+
+#Pre-calculate the 'inf_b4_n'
+inf_b4_n <- inf_info %>% 
+  filter(inf == 1 & max_t < head_day) %>%
+  rename(Real_ID = ID)
+
+master_new_inf
+inf_b4_n
+
+
+for(i in 1:B) {
+  if(is.null(all_trajectories_list[[i]])) next 
+  
+  cat("  -> Running Survival Analysis for Iteration:", i, "\n")
+  
+  # A. MERGE & FORMAT TRAJECTORIES
+  t_IgG  <- all_trajectories_list[[i]]$IgG   %>% rename(IgG = Trajectory)
+  t_nAb  <- all_trajectories_list[[i]]$nAb   %>% rename(nAb = Trajectory)
+  t_MBC  <- all_trajectories_list[[i]]$MBC   %>% rename(MBC = Trajectory)
+  t_IFNg <- all_trajectories_list[[i]]$Tcell %>% rename(IFNg = Trajectory)
+  
+  merged_traj <- t_IgG %>%
+    left_join(t_nAb,  by = c("Virtual_id", "Real_ID", "Days")) %>%
+    left_join(t_MBC,  by = c("Virtual_id", "Real_ID", "Days")) %>%
+    left_join(t_IFNg, by = c("Virtual_id", "Real_ID", "Days")) %>%
+    mutate(
+      log_IgG  = log10(IgG),
+      log_nAb  = log10(nAb),
+      log_MBC  = log10(MBC),
+      log_IFNg = log10(IFNg)
+    )
+  
+  # Slice to window
+  merged_traj_window <- merged_traj %>% filter(Days >= head_day & Days <= tail_day)
+  
+  # B. ASSIGN STATIC INFO
+  virtual_cohort <- merged_traj %>%
+    dplyr::select(Virtual_id, Real_ID) %>%
+    distinct() %>%
+    left_join(master_new_inf, by = "Real_ID")
+  
+  # C. TMERGE & SCALING
+ df_base <- tmerge(virtual_cohort, virtual_cohort, id = Virtual_id, 
+                    endpt = event(new_max_t, new_inf))
+  
+  df_processed <- tmerge(df_base, merged_traj_window, id = Virtual_id,
+                         log_IgG  = tdc(Days, log_IgG),
+                         log_nAb  = tdc(Days, log_nAb),
+                         log_MBC  = tdc(Days, log_MBC),
+                         log_IFNg = tdc(Days, log_IFNg)) %>% 
+    na.omit() %>%
+    mutate(
+      scale_IgG  = scale(log_IgG),
+      scale_nAb  = scale(log_nAb),
+      scale_MBC  = scale(log_MBC),
+      scale_IFNg = scale(log_IFNg)
+    )
+  
+  # Exclude the hybrid immune children from the survival dataset
+ # df_processed <- df_processed %>% filter(!Real_ID %in% inf_b4_n$Real_ID)
+  
+  # D1. UNIVARIATE MODELS
+  fit_uni_IgG  <- tryCatch({ coxph(Surv(tstart, tstop, endpt) ~ scale_IgG  + cluster(Virtual_id), data = df_processed) }, error = function(e) NULL)
+  fit_uni_nAb  <- tryCatch({ coxph(Surv(tstart, tstop, endpt) ~ scale_nAb  + cluster(Virtual_id), data = df_processed) }, error = function(e) NULL)
+  fit_uni_MBC  <- tryCatch({ coxph(Surv(tstart, tstop, endpt) ~ scale_MBC  + cluster(Virtual_id), data = df_processed) }, error = function(e) NULL)
+  fit_uni_IFNg <- tryCatch({ coxph(Surv(tstart, tstop, endpt) ~ scale_IFNg + cluster(Virtual_id), data = df_processed) }, error = function(e) NULL)
+  
+  if(!is.null(fit_uni_IgG))  survival_results$Uni_HR_IgG[i]  <- exp(coef(fit_uni_IgG)["scale_IgG"])
+  if(!is.null(fit_uni_nAb))  survival_results$Uni_HR_nAb[i]  <- exp(coef(fit_uni_nAb)["scale_nAb"])
+  if(!is.null(fit_uni_MBC))  survival_results$Uni_HR_MBC[i]  <- exp(coef(fit_uni_MBC)["scale_MBC"])
+  if(!is.null(fit_uni_IFNg)) survival_results$Uni_HR_IFNg[i] <- exp(coef(fit_uni_IFNg)["scale_IFNg"])
+
+  # D2. MULTIVARIATE MODEL (No IgG)
+  fit_multi <- tryCatch({
+    coxph(Surv(tstart, tstop, endpt) ~ scale_nAb + scale_MBC + scale_IFNg + cluster(Virtual_id), data = df_processed)
+  }, error = function(e) { NULL })
+  
+  if(!is.null(fit_multi)) {
+    survival_results$Multi_HR_nAb[i]  <- exp(coef(fit_multi)["scale_nAb"])
+    survival_results$Multi_HR_MBC[i]  <- exp(coef(fit_multi)["scale_MBC"])
+    survival_results$Multi_HR_IFNg[i] <- exp(coef(fit_multi)["scale_IFNg"])
+  }
+}
+
+```
+##################### Calculate the final CI and HRs
+```{r}
+final_ci_table <- survival_results %>%
+  # Drop the Iteration column so we only analyze the HRs
+  dplyr::select(-Iteration) %>%
+  pivot_longer(cols = everything(), names_to = "Model_and_Biomarker", values_to = "HR") %>%
+  filter(!is.na(HR)) %>%
+  group_by(Model_and_Biomarker) %>%
+  summarise(
+    Median_HR  = quantile(HR, probs = 0.500),
+    Lower_95CI = quantile(HR, probs = 0.025),
+    Upper_95CI = quantile(HR, probs = 0.975),
+    Valid_Bootstraps = n() # Counts how many iterations successfully converged
+  ) %>%
+  mutate(
+    Publication_Format = sprintf("%.2f (%.2f, %.2f)", Median_HR, Lower_95CI, Upper_95CI)
+  )
+print(final_ci_table)
+```

@@ -143,14 +143,17 @@ run_ODE_control <- function(pars, immu){
 ```
 ############## For population fitting, create the sample conditions
 ```{r}
-  immu_detail <- data.frame(immu_group = c( "uninfected", 
+immu_detail <- data.frame(immu_group = c( "uninfected", 
                                   "infected", 
                                   "boosted", 
                                   "infected_boosted"
                                   ),
                          immu = c(1,2,3,4)
                  )
-immu_detail
+immu_detail_1 <- immu_detail %>% mutate(
+  inf = c(NA,150,NA,150),
+  boost = c(NA,NA,303,303)
+)
 ```
 ################################################
 ############## Start simulation ################

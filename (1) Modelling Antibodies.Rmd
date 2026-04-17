@@ -260,9 +260,7 @@ plot_pop_log <- ggplot(combine_pop1, aes(x = time, y = log_igg, group = immu_gro
         legend.position='none',
         #axis.title.y = element_text(size=11,family="sans"),
         axis.title.x = element_text(size=12,family="sans"),
-        #strip.text = element_text(size = 12,family="sans"),
-  theme_minimal() 
-  ) 
+        #strip.text = element_text(size = 12,family="sans") )  + theme_minimal()
 plot_pop_log
 ```
 
@@ -461,39 +459,35 @@ ind_reinf
 ######################################
 ```{r}
 plot_indfit <- ggplot(individual_fit, aes(x = Days)) +
- 
   geom_ribbon(aes(ymin = Min, ymax = Max, fill = immune_group), alpha = 0.3) +
-
   geom_line(aes(y = y, color = immune_group), size = 1, alpha = 0.8) +
-  
-  
-  geom_vline(data =ind_inf,  aes(xintercept = t_inf),color = "red",linetype = "dotted", size = 1, alpha = 0.5) +
-  geom_vline(data =ind_boost,  aes(xintercept = t_boost),color = "blue",linetype = "dotted", size = 1, alpha = 0.5) +
-  geom_vline(data =ind_reinf,  aes(xintercept = t_inf_2),color = "red",linetype = "dotted", size = 1, alpha = 0.5) +
-  #add inf time, boost time
+  geom_vline(data = ind_inf, aes(xintercept = t_inf), color = "red", linetype = "dotted", size = 1, alpha = 0.5) +
+  geom_vline(data = ind_boost, aes(xintercept = t_boost), color = "blue", linetype = "dotted", size = 1, alpha = 0.5) +
+  geom_vline(data = ind_reinf, aes(xintercept = t_inf_2), color = "red", linetype = "dotted", size = 1, alpha = 0.5) +
   geom_point(data = Original_immu, aes(x = Day, y = Anti.S.IgG, color = immune_group), 
-             shape = 16, size = 2, alpha = 2) +
+             shape = 16, size = 2, alpha = 1) + # Note: alpha max is 1
+  facet_wrap(~ Code, scales = "free_y") +
 
-   facet_wrap(~ Code,scales = "free_y" )+
- theme(axis.text = element_text(colour = "black"),
-        axis.ticks = element_line(colour = "black"),
-        axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        legend.position='bottom',
-        axis.title.y = element_text(size=11,family="sans"),
-        axis.title.x = element_text(size=11,family="sans"),
-  theme_minimal() 
-  )   +
+  theme_minimal() + 
+  theme(            
+    axis.text = element_text(colour = "black"),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    legend.position = 'bottom',
+    axis.title.y = element_text(size = 11, family = "sans"),
+    axis.title.x = element_text(size = 11, family = "sans")
+  ) +
+
   
   labs(
-    #title = "Individual Fit with Shaded Uncertainty",
     x = "Time (days)",
     y = "Anti-S-IgG (U/ml)",
     fill = "Immune Group",
     color = "Immune Group"
-  ) 
+  )
 
 plot_indfit
 ```

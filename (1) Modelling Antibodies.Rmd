@@ -13,7 +13,7 @@ library(MASS)
 
 ############ For antibodies, we use an exponential model to simulate the trajectories ###############
 ```{r}
-pop <- read.csv("populationParameters.txt",  row.names = 1) # read igg paramters or nAb parameters
+pop <- read.csv("populationParameters.txt",  row.names = 1) # read igg paramters or nAb parameters: populationParameters_igg/populationParameters_nAb
 ```
 
 

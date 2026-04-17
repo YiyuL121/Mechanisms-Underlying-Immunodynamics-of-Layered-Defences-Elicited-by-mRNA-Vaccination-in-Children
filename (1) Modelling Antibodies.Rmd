@@ -259,8 +259,9 @@ plot_pop_log <- ggplot(combine_pop1, aes(x = time, y = log_igg, group = immu_gro
         panel.background = element_blank(),
         legend.position='none',
         #axis.title.y = element_text(size=11,family="sans"),
-        axis.title.x = element_text(size=12,family="sans"),
-        #strip.text = element_text(size = 12,family="sans") )  + theme_minimal()
+        axis.title.x = element_text(size=12,family="sans")
+        #strip.text = element_text(size = 12,family="sans") 
+)  + theme_minimal()
 plot_pop_log
 ```
 

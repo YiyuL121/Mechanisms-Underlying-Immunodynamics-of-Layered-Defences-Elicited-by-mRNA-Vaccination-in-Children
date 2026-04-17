@@ -13,7 +13,11 @@ library(MASS)
 
 ############ For antibodies, we use an exponential model to simulate the trajectories ###############
 ```{r}
-pop <- read.csv("populationParameters.txt",  row.names = 1) # read igg paramters or nAb parameters: populationParameters_igg/populationParameters_nAb
+# Choose which biomarker to run: "igg" or "nab"
+biomarker <- "igg"
+pop       <- read.csv(paste0("data/populationParameters_",        biomarker, ".txt"), row.names = 1)
+Est       <- read.csv(paste0("data/estimatedIndividualParameters_", biomarker, ".txt"))
+Simulated <- read.csv(paste0("data/simulatedIndividualParameters_", biomarker, ".txt"))
 ```
 
 
@@ -263,13 +267,10 @@ plot_pop_log
 ################ read individual immunity detail and raw data ####################
 ##################################################################################
 ```{r}
-Original <- read.csv("")
-Original
-immu_detail_individuals <- read.csv("immu_detail_individuals_reinf.csv")
-immu_detail_individuals
+Original <- read.csv("") # Not provided
+immu_detail_individuals <- read.csv("")  # Not provided
 Original_immu <- merge(Original,immu_detail_individuals[,c(1,8,9)], by = "ID") %>%
   rename(Code = ID)
-Original_immu
 ```
 
 ########## individual trajectory function: consider reinfection ############
@@ -350,13 +351,7 @@ ode_ab_ind <- function(pars, immunity) { #Here immu is a list
   as.data.frame(out)
 }
 ```
-######### read monolix results
-```{r}
-Est <- read.csv("estimatedIndividualParameters.txt", sep = ",", comment.char = "", header = T)
-Simulated <- read.csv("simulatedIndividualParameters.txt", sep = ",", comment.char = "", header = T)
-Est
-Simulated
-```
+
 ######## simulation function
 ```{r}
 Tmin <- 0

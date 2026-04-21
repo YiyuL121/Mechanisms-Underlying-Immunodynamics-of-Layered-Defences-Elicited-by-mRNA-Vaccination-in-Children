@@ -21,11 +21,14 @@ library(scales)  # for gradient color scaling
 ```
 ######################## load simulated data for survival analysis
 ```{r}
-simulated_IL2 <- read.csv("Simulated_IL2.csv")
+# Produced by scripts (1), (2), (3) after running their simulation chunks.
+# Save the `combine_pop1` / `combine_pop` outputs to these files before running (4).
+simulated_IL2  <- read.csv("Simulated_IL2.csv")
 simulated_IFNg <- read.csv("Simulated_IFNg.csv")
-simulated_igG <- read.csv("simulated_igG.csv")
-simulated_MBC <- read.csv("simulated_MBC.csv")
+simulated_igG  <- read.csv("simulated_igG.csv")
+simulated_MBC  <- read.csv("simulated_MBC.csv")
 simulated_IC50 <- read.csv("simulated_IC50.csv")
+
 ```
 ############# Merge simulated data ###############
 ```{r}
@@ -48,11 +51,11 @@ merged_data
 ```
 ############### Read and Merge raw data #############
 ```{r}
-raw_IL2 <- read.csv("")
-raw_IFNg <- read.csv("")
-raw_igG <- read.csv("")
-raw_MBC <- read.csv("")
-raw_IC50 <- read.csv("")
+raw_IL2   <- read.csv("") # Not provided
+raw_IFNg  <- read.csv("") # Not provided
+raw_igG   <- read.csv("") # Not provided
+raw_MBC   <- read.csv("") # Not provided
+raw_IC50  <- read.csv("") # Not provided
 
 raw_merged_data <- raw_igG[,c(1:3)] %>%
   left_join(raw_IL2[,c(1:3)], by = c("ID","Day"))%>%
@@ -133,7 +136,7 @@ print(cor_plot)
 ########## Immunity details of individual #############
 #######################################################
 ```{r}
-immu_detail_individuals <- read.csv("immu_detail_individuals_reinf.csv")
+immu_detail_individuals <- read.csv("immu_detail_individuals_reinf.csv") # not provided
 ```
 ```{r}
 # retrieve individual infection info 

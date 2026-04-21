@@ -3,7 +3,7 @@
 ########################################################
 
 ############ Note that this code requires the piece-wise survival model: 6M-12M, fitted by log-IFNg ##########
-############ recommend running this code together with (4) Survival analysis ################
+############ The script must be run after (3) and (4) in the same R session, and IFNg_pop.csv is an intermediate artifact. ################
 
 ###### read the simulated IFNg data, this data has maximum t = 1000 days #######
 ```{r}
@@ -235,9 +235,10 @@ ode_ifng_surv <- function(pars, tstop_ind, t_inf) {
   # Define the ODE function
   derivs <- function(times, y, pars, inf_time) {
     with(as.list(c(y, pars)), {
+      # Use ifelse to handle vectorized times
       dA <- ifelse(times < inf_time,
                    alpha_pop * exp(-gamma_pop * times) - beta_pop * A,
-                   alpha_1pop * exp(-gamma1_pop * (times - inf_time)) - beta1_pop * A)
+                   alpha1_pop * exp(-gamma1_pop * (times - inf_time)) - beta1_pop * A)
       return(list(c(dA)))
     })
   }
@@ -248,19 +249,25 @@ ode_ifng_surv <- function(pars, tstop_ind, t_inf) {
   # Loop over each t_inf
   for (i in seq_along(t_inf)) {
     inf_time <- t_inf[i]
-
+    
+    # Define time sequence
     times <- seq(Tmin, tstop_ind, by = step_size)
     
+    # Initial conditions
     y <- c(A = A0)
-
-    out <- ode(y = y, times = times, func = derivs, parms = list(alpha_pop = alpha_pop, gamma_pop = gamma_pop, beta_pop = beta_pop), inf_time = inf_time)
     
+    # Solve the ODE
+    out <- ode(y = y, times = times, func = derivs, parms = list(alpha_pop = alpha_pop, gamma_pop = gamma_pop, beta_pop = beta_pop, alpha1_pop = alpha1_pop, gamma1_pop = gamma1_pop,beta1_pop = beta1_pop ), inf_time = inf_time)
+    
+    # Convert to data frame and add t_inf column
     out_df <- as.data.frame(out)
     out_df$t_inf <- inf_time
     
+    # Store in results list
     results_list[[i]] <- out_df
   }
   
+  # Combine all results into a single data frame
   result <- bind_rows(results_list)
   
   return(result)
@@ -274,10 +281,10 @@ A0_values <- 1.281943e+00
 alpha_pop <-1.511048e+02	
 gamma_pop <-8.736368e-01	
 beta_pop <-9.150411e-03	
-alpha_1pop <-7.962480e+00	
-gamma_1pop <- 1.662723e-01	
-beta_1pop <-3.786414e-03	
-parameters <- c(A0_values,alpha_pop,gamma_pop,beta_pop,alpha_1pop,gamma_1pop,beta_1pop)
+alpha1_pop <-7.962480e+00	
+gamma1_pop <- 1.662723e-01	
+beta1_pop <-3.786414e-03	
+parameters <- c(A0_values,alpha_pop,gamma_pop,beta_pop,alpha1_pop,gamma1_pop,beta1_pop)
 infection
 Tmin = 0
 step_size = 1

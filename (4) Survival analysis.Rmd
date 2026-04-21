@@ -9,6 +9,7 @@
 
 ```{r}
 library(dplyr)
+library(tidyr)
 library(survival)
 library(tidyr)
 library(ggplot2)

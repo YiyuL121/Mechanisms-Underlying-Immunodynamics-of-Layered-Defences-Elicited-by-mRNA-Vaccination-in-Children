@@ -12,7 +12,7 @@ library(MASS)
 
 ############ For MBC, we use an inactivation model to simulate the trajectories ###############
 ```{r}
-pop <- read.csv("populationParameters.txt",  row.names = 1) # read MBC parameters
+pop <- read.csv("populationParameters_mbc.txt",  row.names = 1) # read MBC parameters
 ```
 
 
@@ -185,8 +185,8 @@ Original
 ```
 ######### read monolix results
 ```{r}
-Est <- read.csv("estimatedIndividualParameters.txt", sep = ",", comment.char = "", header = T)
-Simulated <- read.csv("simulatedIndividualParameters.txt", sep = ",", comment.char = "", header = T)
+Est <- read.csv("estimatedIndividualParameters_mbc.txt", sep = ",", comment.char = "", header = T)
+Simulated <- read.csv("simulatedIndividualParameters_mbc.txt", sep = ",", comment.char = "", header = T)
 Est
 Simulated
 ```

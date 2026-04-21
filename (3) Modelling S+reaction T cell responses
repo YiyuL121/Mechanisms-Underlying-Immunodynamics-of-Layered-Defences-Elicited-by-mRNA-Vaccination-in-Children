@@ -363,7 +363,7 @@ plot_pop_log
 
 ############ Process original data to obtain inf/boost information ################
 ```{r}
-Original <- read.csv("C:/Users/YIYU.LIAO/OneDrive - Nanyang Technological University/Desktop/immu correlate/MONOLIX/IFNg/df_full_IFNg_reinf2.csv")
+Original <- read.csv("") # Original data is not provided
 Original <- Original[, -c(10, 11)]
 Original <- Original %>% mutate(
   imm = 

@@ -11,7 +11,7 @@ library(MASS)
 ```
 
 
-```r
+
 ############ For MBC, we use an inactivation model to simulate the trajectories ###############
 ```{r}
 pop       <- read.csv("data/populationParameters_mbc.txt", row.names = 1)
@@ -170,8 +170,8 @@ plot_pop_log<- ggplot(combine_pop, aes(x = time, y = log10(best_fit))) +
         legend.position = "top",
         axis.title.y = element_text(size=11,family="sans"),
         axis.title.x = element_text(size=11,family="sans")
-  )+
-  theme(legend.position = "top")
+  )
+
 plot_pop_log
 ```
 
@@ -181,7 +181,7 @@ plot_pop_log
 
 ############ read raw data 
 ```{r}
-Original <- read.csv("")
+Original <- read.csv("") # original data not provided
 Original <- Original %>%
   rename(Code = ID)
 Original

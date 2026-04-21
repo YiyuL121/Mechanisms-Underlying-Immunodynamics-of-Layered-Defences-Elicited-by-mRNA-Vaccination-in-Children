@@ -10,10 +10,13 @@ library(purrr)
 library(MASS)
 ```
 
+
+```r
 ############ For MBC, we use an inactivation model to simulate the trajectories ###############
 ```{r}
-pop <- read.csv("populationParameters_mbc.txt",  row.names = 1) # read MBC parameters
-```
+pop       <- read.csv("data/populationParameters_mbc.txt", row.names = 1)
+Est       <- read.csv("data/estimatedIndividualParameters_mbc.txt")
+Simulated <- read.csv("data/simulatedIndividualParameters_mbc.txt")
 
 
 ########## MBC function, assume infection and booster has no impact on it #############
@@ -157,16 +160,16 @@ plot_pop_log<- ggplot(combine_pop, aes(x = time, y = log10(best_fit))) +
     x = "Time (days)",
     y = "log 10 Percentage of S+ MBCs out of total B cells (%)",
   ) +
+   theme_minimal() +
   theme(axis.text = element_text(colour = "black"),
         axis.ticks = element_line(colour = "black"),
         axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
-        legend.position='none',
+        legend.position = "top",
         axis.title.y = element_text(size=11,family="sans"),
-        axis.title.x = element_text(size=11,family="sans"),
-  theme_minimal() 
+        axis.title.x = element_text(size=11,family="sans")
   )+
   theme(legend.position = "top")
 plot_pop_log
@@ -182,13 +185,6 @@ Original <- read.csv("")
 Original <- Original %>%
   rename(Code = ID)
 Original
-```
-######### read monolix results
-```{r}
-Est <- read.csv("estimatedIndividualParameters_mbc.txt", sep = ",", comment.char = "", header = T)
-Simulated <- read.csv("simulatedIndividualParameters_mbc.txt", sep = ",", comment.char = "", header = T)
-Est
-Simulated
 ```
 
 
@@ -291,17 +287,17 @@ plot_indfit <- ggplot(individual_fit_MBC, aes(x = Days)) +
              shape = 16, size = 2, alpha = 2) +
  
   facet_wrap(~ Code )+
- theme(axis.text = element_text(colour = "black"),
+   theme_minimal() +
+  theme(axis.text = element_text(colour = "black"),
         axis.ticks = element_line(colour = "black"),
         axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
-        legend.position='bottom',
+        legend.position = 'bottom',
         axis.title.y = element_text(size=11,family="sans"),
-        axis.title.x = element_text(size=11,family="sans"),
-  theme_minimal() 
-  )   +
+        axis.title.x = element_text(size=11,family="sans")
+  ) +
   
   labs(
     #title = "Individual Fit of SPIKE-MBC",

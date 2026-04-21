@@ -11,10 +11,12 @@ library(MASS)
 
 ############ For T cell responses, we use an inactivation model to simulate the trajectories ###############
 ```{r}
-pop <- read.csv("populationParameters.txt",  row.names = 1) # read IFNg paramters or IL2 parameters
+# Choose which biomarker to run: "ifng" or "il2"
+biomarker <- "ifng"
+pop            <- read.csv(paste0("data/populationParameters_",         biomarker, ".txt"), row.names = 1)
+Est_file       <- read.csv(paste0("data/estimatedIndividualParameters_", biomarker, ".txt"))
+Simulated_file <- read.csv(paste0("data/simulatedIndividualParameters_", biomarker, ".txt"))
 ```
-
-
 ####### define immunity conferring events for population fit ##########
 ```{r}
 immu_detail <- data.frame(immu_group = c( "uninfected", 
@@ -304,18 +306,18 @@ plot_pop_log <- ggplot(combine_pop, aes(x = time)) +
   geom_vline(aes(xintercept = t_inf), color = "red",linetype = "dotted", size = 1, alpha = 0.5) +
   geom_vline(aes(xintercept = t_boost), color = "blue",linetype = "dotted", size = 1, alpha = 0.5) +
  
-  facet_wrap(~ immu_group) +# , scales = "free_y")+
+  facet_wrap(~ Code) +
+  theme_minimal() +
   theme(axis.text = element_text(colour = "black"),
         axis.ticks = element_line(colour = "black"),
         axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
-        legend.position='none',
+        legend.position = 'bottom',
         axis.title.y = element_text(size=11,family="sans"),
-        axis.title.x = element_text(size=11,family="sans"),
-  theme_minimal() 
-  ) +
+        axis.title.x = element_text(size=11,family="sans")
+  )  +
   labs(
     #title = "Individual Fit of IFNg with Shaded Uncertainty",
     x = "Time (days)",
@@ -323,39 +325,6 @@ plot_pop_log <- ggplot(combine_pop, aes(x = time)) +
   )
 plot_pop_log
 ```
-#########################################
-```{r}
-plot_pop_log <- ggplot(combine_pop, aes(x = time)) +
- 
-  geom_ribbon(aes(ymin = log10(Min90), ymax = log10(Max90), fill = immu_group), alpha = 0.15) +
-  geom_ribbon(aes(ymin = log10(Min50), ymax = log10(Max50), fill = immu_group), alpha = 0.3) +
-
-  geom_line(aes(y = log10(Mean50), color = immu_group), size = 1.5, alpha = 0.8) +
-  
-  
-  geom_vline(aes(xintercept = t_inf), color = "red",linetype = "dotted", size = 1, alpha = 0.5) +
-  geom_vline(aes(xintercept = t_boost), color = "blue",linetype = "dotted", size = 1, alpha = 0.5) +
- 
-  facet_wrap(~ immu_group) +# , scales = "free_y")+
-  theme(axis.text = element_text(colour = "black"),
-        axis.ticks = element_line(colour = "black"),
-        axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        legend.position='none',
-        axis.title.y = element_text(size=11,family="sans"),
-        axis.title.x = element_text(size=11,family="sans"),
-  theme_minimal() 
-  ) +
-  labs(
-    #title = "Individual Fit of IFNg with Shaded Uncertainty",
-    x = "Time (days)",
-    y = "log 10 IFNg (pg/ml)"
-  )
-plot_pop_log
-```
-
 
 ###########################################################################################################
 ################################## Individual Fitting #####################################################
@@ -396,13 +365,7 @@ Original_immu <- merge(Original,immu_detail_individuals[, c(1,9)], by = "ID") %>
 
 Original_immu
 ```
-############ Read monolix parameter ###############
-```{r}
-Est_file <- read.csv("estimatedIndividualParameters.txt", sep = ",", comment.char = "", header = T) # Modify the path to Monolix individual parameters file
-Simulated_file <- read.csv("simulatedIndividualParameters.txt", sep = ",", comment.char = "", header = T) # Modify the path to Monolix individual parameters file
-Est_file
-Simulated_file
-```
+
 ######### merge parameters with inf/boost information ##########
 ```{r}
 Est <- Est_file %>% full_join(ori_fil, by = "id")

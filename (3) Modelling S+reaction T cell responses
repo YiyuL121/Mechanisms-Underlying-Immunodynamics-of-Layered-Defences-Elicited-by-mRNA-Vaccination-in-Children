@@ -292,7 +292,7 @@ combine_pop <- combine_pop %>%
 combine_pop
 ```
 #############################################
-############## Figure-3 D&E #################
+############## Figure-2 #################
 #############################################
 ```{r}
 plot_pop_log <- ggplot(combine_pop, aes(x = time)) +
@@ -306,7 +306,7 @@ plot_pop_log <- ggplot(combine_pop, aes(x = time)) +
   geom_vline(aes(xintercept = t_inf), color = "red",linetype = "dotted", size = 1, alpha = 0.5) +
   geom_vline(aes(xintercept = t_boost), color = "blue",linetype = "dotted", size = 1, alpha = 0.5) +
  
-  facet_wrap(~ Code) +
+  facet_wrap(~ immu_group) +
   theme_minimal() +
   theme(axis.text = element_text(colour = "black"),
         axis.ticks = element_line(colour = "black"),
@@ -496,6 +496,7 @@ plot_indfit_log <- ggplot(individual_fit, aes(x = Days)) +
              shape = 16, size = 2, alpha = 2) +
  
   facet_wrap(~ Code )+
+ theme_minimal() +
  theme(axis.text = element_text(colour = "black"),
         axis.ticks = element_line(colour = "black"),
         axis.line = element_line(colour = "black"),
@@ -504,9 +505,8 @@ plot_indfit_log <- ggplot(individual_fit, aes(x = Days)) +
         panel.background = element_blank(),
         legend.position='bottom',
         axis.title.y = element_text(size=11,family="sans"),
-        axis.title.x = element_text(size=11,family="sans"),
-  theme_minimal() 
-  )   +
+        axis.title.x = element_text(size=11,family="sans")
+  )     +
   
   labs(
     #title = "Individual Fit of IFNg with Shaded Uncertainty",

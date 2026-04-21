@@ -6,6 +6,9 @@
 ```{r}
 library(ggplot2)
 library(dplyr)
+library(tidyr)
+library(scales)
+
 ```
 
 ###########################################
@@ -276,9 +279,7 @@ coeff_plot2 <- ggplot(coeff_data, aes(x = Biomarker, y = Coeff_Statistic , fill 
     strip.text = element_text(size = 14, face = "bold"),
     legend.text = element_text(size = 12),
     axis.title.x = element_text(size = 14),
-    axis.title.y = element_blank())#,
-  #  plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm")
-  #)
+    axis.title.y = element_blank())
 
 # Print the plot
 print(coeff_plot2)

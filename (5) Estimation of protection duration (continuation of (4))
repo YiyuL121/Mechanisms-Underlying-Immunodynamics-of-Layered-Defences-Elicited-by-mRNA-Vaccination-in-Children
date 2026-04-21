@@ -7,6 +7,9 @@
 
 ###### read the simulated IFNg data, this data has maximum t = 1000 days #######
 ```{r}
+library(tidyr)
+
+
 IFNg_pop <- read.csv("IFNg_pop.csv")
 IFNg_pop <- IFNg_pop %>% filter(immu == 1 | immu == 2 | immu == 4) %>% dplyr::select(-c(Mean50,Max95,Max50,Min50,Min95))
 IFNg_pop
